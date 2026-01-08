@@ -1,37 +1,39 @@
 import express from 'express';
 import { supabase } from '../config/database.js';
 import { verifyToken, requireRole } from '../middleware/auth.js';
-import { sendCheckpointNotification } from '../config/email.js';
 import crypto from 'crypto';
 
 const router = express.Router();
+
+// Status enum matching database schema
+const SHIPMENT_STATUSES = ['posted', 'processing', 'assigned', 'in_transit', 'delivered', 'cancelled'];
+
+// Cargo types for categorization
+const CARGO_TYPES = ['general', 'electronics', 'perishables', 'medicine', 'groceries', 'fragile', 'hazardous', 'livestock', 'heavy_machinery'];
 
 // Mock shipments for development
 let mockShipments = [
     {
         id: '1',
         shipper_id: '2',
-        transporter_id: null,
-        vehicle_id: null,
-        origin: { lat: 13.0827, lng: 80.2707, address: 'Chennai, Tamil Nadu' },
-        destination: { lat: 12.9716, lng: 77.5946, address: 'Bangalore, Karnataka' },
-        cargo_type: 'general',
-        weight: 5,
-        volume: 20,
-        vehicle_type_required: 'covered',
-        special_requirements: [],
-        pickup_date: new Date().toISOString(),
-        delivery_date: null,
-        status: 'pending',
-        price: null,
-        distance_km: 350,
-        estimated_duration_hours: 6,
-        created_at: new Date().toISOString()
+        cargo_type: 'electronics',
+        weight_kg: 500,
+        quantity: 10,
+        special_requirements: ['covered', 'fragile_handling'],
+        origin_address: 'Chennai, Tamil Nadu',
+        origin_lat: 13.0827,
+        origin_lng: 80.2707,
+        dest_address: 'Bangalore, Karnataka',
+        dest_lat: 12.9716,
+        dest_lng: 77.5946,
+        pickup_deadline: new Date(Date.now() + 86400000).toISOString(),
+        delivery_deadline: new Date(Date.now() + 172800000).toISOString(),
+        status: 'posted',
+        total_price_estimate: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
     }
 ];
-
-const CARGO_TYPES = ['general', 'perishable', 'fragile', 'hazardous', 'livestock', 'heavy_machinery'];
-const SHIPMENT_STATUSES = ['pending', 'accepted', 'picked_up', 'in_transit', 'delivered', 'cancelled'];
 
 // Get all shipments (filtered by role)
 router.get('/', verifyToken, async (req, res) => {
@@ -42,23 +44,22 @@ router.get('/', verifyToken, async (req, res) => {
             let query = supabase
                 .from('shipments')
                 .select(`
-          *,
-          shipper:users!shipper_id(id, name, phone),
-          transporter:users!transporter_id(id, name, phone),
-          vehicle:vehicles(id, vehicle_number, type)
-        `);
+                    *,
+                    shipper:profiles!shipper_id(id, business_name, phone, email)
+                `);
 
-            // Filter by user role
+            // Filter by user role - shippers see their own, transporters see all posted
             if (req.user.role === 'shipper') {
                 query = query.eq('shipper_id', req.user.id);
             } else if (req.user.role === 'transporter') {
-                query = query.or(`transporter_id.eq.${req.user.id},status.eq.pending`);
+                // Transporters can see posted shipments or ones they're assigned to via route_legs
+                query = query.or(`status.eq.posted,shipper_id.eq.${req.user.id}`);
             }
 
             if (status) query = query.eq('status', status);
             if (cargo_type) query = query.eq('cargo_type', cargo_type);
-            if (from_date) query = query.gte('pickup_date', from_date);
-            if (to_date) query = query.lte('pickup_date', to_date);
+            if (from_date) query = query.gte('pickup_deadline', from_date);
+            if (to_date) query = query.lte('pickup_deadline', to_date);
 
             const { data: shipments, error } = await query.order('created_at', { ascending: false });
 
@@ -69,7 +70,7 @@ router.get('/', verifyToken, async (req, res) => {
             if (req.user.role === 'shipper') {
                 shipments = shipments.filter(s => s.shipper_id === req.user.id);
             } else if (req.user.role === 'transporter') {
-                shipments = shipments.filter(s => s.transporter_id === req.user.id || s.status === 'pending');
+                shipments = shipments.filter(s => s.status === 'posted');
             }
             if (status) shipments = shipments.filter(s => s.status === status);
             if (cargo_type) shipments = shipments.filter(s => s.cargo_type === cargo_type);
@@ -80,33 +81,46 @@ router.get('/', verifyToken, async (req, res) => {
     }
 });
 
-// Get available shipments for transporters (pending only)
+// Get available shipments for transporters (posted only - marketplace)
 router.get('/available', verifyToken, requireRole('transporter'), async (req, res) => {
     try {
-        const { vehicle_type, min_weight, max_weight, origin_lat, origin_lng, radius_km } = req.query;
+        const { cargo_type, min_weight, max_weight, origin_lat, origin_lng, radius_km } = req.query;
 
         if (supabase) {
             let query = supabase
                 .from('shipments')
                 .select(`
-          *,
-          shipper:users!shipper_id(id, name, phone, rating)
-        `)
-                .eq('status', 'pending');
+                    *,
+                    shipper:profiles!shipper_id(id, business_name, phone, verified)
+                `)
+                .eq('status', 'posted');
 
-            if (vehicle_type) query = query.eq('vehicle_type_required', vehicle_type);
-            if (min_weight) query = query.gte('weight', parseFloat(min_weight));
-            if (max_weight) query = query.lte('weight', parseFloat(max_weight));
+            if (cargo_type) query = query.eq('cargo_type', cargo_type);
+            if (min_weight) query = query.gte('weight_kg', parseInt(min_weight));
+            if (max_weight) query = query.lte('weight_kg', parseInt(max_weight));
 
             const { data: shipments, error } = await query.order('created_at', { ascending: false });
 
             if (error) throw error;
-            res.json(shipments);
+
+            // Filter by radius if origin provided
+            let filteredShipments = shipments;
+            if (origin_lat && origin_lng && radius_km) {
+                filteredShipments = shipments.filter(s => {
+                    const distance = calculateDistance(
+                        parseFloat(origin_lat), parseFloat(origin_lng),
+                        s.origin_lat, s.origin_lng
+                    );
+                    return distance <= parseFloat(radius_km);
+                });
+            }
+
+            res.json(filteredShipments);
         } else {
-            let shipments = mockShipments.filter(s => s.status === 'pending');
-            if (vehicle_type) shipments = shipments.filter(s => s.vehicle_type_required === vehicle_type);
-            if (min_weight) shipments = shipments.filter(s => s.weight >= parseFloat(min_weight));
-            if (max_weight) shipments = shipments.filter(s => s.weight <= parseFloat(max_weight));
+            let shipments = mockShipments.filter(s => s.status === 'posted');
+            if (cargo_type) shipments = shipments.filter(s => s.cargo_type === cargo_type);
+            if (min_weight) shipments = shipments.filter(s => s.weight_kg >= parseInt(min_weight));
+            if (max_weight) shipments = shipments.filter(s => s.weight_kg <= parseInt(max_weight));
             res.json(shipments);
         }
     } catch (error) {
@@ -114,7 +128,7 @@ router.get('/available', verifyToken, requireRole('transporter'), async (req, re
     }
 });
 
-// Get single shipment
+// Get single shipment with route legs
 router.get('/:id', verifyToken, async (req, res) => {
     try {
         const { id } = req.params;
@@ -123,12 +137,14 @@ router.get('/:id', verifyToken, async (req, res) => {
             const { data: shipment, error } = await supabase
                 .from('shipments')
                 .select(`
-          *,
-          shipper:users!shipper_id(id, name, phone, email),
-          transporter:users!transporter_id(id, name, phone),
-          vehicle:vehicles(id, vehicle_number, type),
-          checkpoints(*)
-        `)
+                    *,
+                    shipper:profiles!shipper_id(id, business_name, phone, email),
+                    route_legs(
+                        *,
+                        vehicle:vehicles(id, plate_number, vehicle_type),
+                        transporter:profiles!transporter_id(id, business_name, phone)
+                    )
+                `)
                 .eq('id', id)
                 .single();
 
@@ -139,7 +155,7 @@ router.get('/:id', verifyToken, async (req, res) => {
             if (!shipment) {
                 return res.status(404).json({ error: 'Shipment not found' });
             }
-            res.json(shipment);
+            res.json({ ...shipment, route_legs: [] });
         }
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -150,39 +166,52 @@ router.get('/:id', verifyToken, async (req, res) => {
 router.post('/', verifyToken, requireRole('shipper'), async (req, res) => {
     try {
         const {
-            origin,
-            destination,
             cargo_type,
-            weight,
-            volume,
-            vehicle_type_required,
+            weight_kg,
+            quantity,
             special_requirements,
-            pickup_date,
-            description
+            origin_address,
+            origin_lat,
+            origin_lng,
+            dest_address,
+            dest_lat,
+            dest_lng,
+            pickup_deadline,
+            delivery_deadline,
+            total_price_estimate
         } = req.body;
 
-        if (!origin || !destination || !cargo_type || !weight || !vehicle_type_required) {
-            return res.status(400).json({ error: 'Origin, destination, cargo type, weight, and vehicle type are required' });
+        // Validation
+        if (!cargo_type || !weight_kg || !origin_address || !origin_lat || !origin_lng ||
+            !dest_address || !dest_lat || !dest_lng) {
+            return res.status(400).json({
+                error: 'Required fields: cargo_type, weight_kg, origin (address, lat, lng), destination (address, lat, lng)'
+            });
+        }
+
+        if (weight_kg <= 0) {
+            return res.status(400).json({ error: 'Weight must be greater than 0' });
         }
 
         const shipmentData = {
             id: crypto.randomUUID(),
             shipper_id: req.user.id,
-            transporter_id: null,
-            vehicle_id: null,
-            origin,
-            destination,
             cargo_type,
-            weight: parseFloat(weight),
-            volume: parseFloat(volume) || 0,
-            vehicle_type_required,
+            weight_kg: parseInt(weight_kg),
+            quantity: parseInt(quantity) || 1,
             special_requirements: special_requirements || [],
-            pickup_date: pickup_date || new Date().toISOString(),
-            delivery_date: null,
-            status: 'pending',
-            price: null,
-            description: description || '',
-            created_at: new Date().toISOString()
+            origin_address,
+            origin_lat: parseFloat(origin_lat),
+            origin_lng: parseFloat(origin_lng),
+            dest_address,
+            dest_lat: parseFloat(dest_lat),
+            dest_lng: parseFloat(dest_lng),
+            pickup_deadline: pickup_deadline || null,
+            delivery_deadline: delivery_deadline || null,
+            status: 'posted',
+            total_price_estimate: total_price_estimate ? parseFloat(total_price_estimate) : null,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
         };
 
         if (supabase) {
@@ -203,52 +232,58 @@ router.post('/', verifyToken, requireRole('shipper'), async (req, res) => {
     }
 });
 
-// Accept shipment (transporter only)
-router.post('/:id/accept', verifyToken, requireRole('transporter'), async (req, res) => {
+// Update shipment (shipper can update their own)
+router.put('/:id', verifyToken, async (req, res) => {
     try {
         const { id } = req.params;
-        const { vehicle_id, proposed_price } = req.body;
-
-        if (!vehicle_id) {
-            return res.status(400).json({ error: 'Vehicle ID is required' });
-        }
+        const {
+            cargo_type,
+            weight_kg,
+            quantity,
+            special_requirements,
+            origin_address,
+            origin_lat,
+            origin_lng,
+            dest_address,
+            dest_lat,
+            dest_lng,
+            pickup_deadline,
+            delivery_deadline,
+            total_price_estimate
+        } = req.body;
 
         const updateData = {
-            transporter_id: req.user.id,
-            vehicle_id,
-            price: proposed_price || null,
-            status: 'accepted',
-            accepted_at: new Date().toISOString()
+            ...(cargo_type && { cargo_type }),
+            ...(weight_kg !== undefined && { weight_kg: parseInt(weight_kg) }),
+            ...(quantity !== undefined && { quantity: parseInt(quantity) }),
+            ...(special_requirements && { special_requirements }),
+            ...(origin_address && { origin_address }),
+            ...(origin_lat !== undefined && { origin_lat: parseFloat(origin_lat) }),
+            ...(origin_lng !== undefined && { origin_lng: parseFloat(origin_lng) }),
+            ...(dest_address && { dest_address }),
+            ...(dest_lat !== undefined && { dest_lat: parseFloat(dest_lat) }),
+            ...(dest_lng !== undefined && { dest_lng: parseFloat(dest_lng) }),
+            ...(pickup_deadline !== undefined && { pickup_deadline }),
+            ...(delivery_deadline !== undefined && { delivery_deadline }),
+            ...(total_price_estimate !== undefined && { total_price_estimate: parseFloat(total_price_estimate) }),
+            updated_at: new Date().toISOString()
         };
 
         if (supabase) {
-            // Check if shipment is still pending
-            const { data: existing } = await supabase
-                .from('shipments')
-                .select('status')
-                .eq('id', id)
-                .single();
-
-            if (existing?.status !== 'pending') {
-                return res.status(400).json({ error: 'Shipment is no longer available' });
-            }
-
             const { data: shipment, error } = await supabase
                 .from('shipments')
                 .update(updateData)
                 .eq('id', id)
+                .eq('shipper_id', req.user.id) // Only owner can update
                 .select()
                 .single();
 
             if (error) throw error;
             res.json(shipment);
         } else {
-            const index = mockShipments.findIndex(s => s.id === id);
+            const index = mockShipments.findIndex(s => s.id === id && s.shipper_id === req.user.id);
             if (index === -1) {
                 return res.status(404).json({ error: 'Shipment not found' });
-            }
-            if (mockShipments[index].status !== 'pending') {
-                return res.status(400).json({ error: 'Shipment is no longer available' });
             }
             mockShipments[index] = { ...mockShipments[index], ...updateData };
             res.json(mockShipments[index]);
@@ -270,8 +305,7 @@ router.put('/:id/status', verifyToken, async (req, res) => {
 
         const updateData = {
             status,
-            updated_at: new Date().toISOString(),
-            ...(status === 'delivered' && { delivery_date: new Date().toISOString() })
+            updated_at: new Date().toISOString()
         };
 
         if (supabase) {
@@ -280,9 +314,9 @@ router.put('/:id/status', verifyToken, async (req, res) => {
                 .update(updateData)
                 .eq('id', id)
                 .select(`
-          *,
-          shipper:users!shipper_id(email)
-        `)
+                    *,
+                    shipper:profiles!shipper_id(email, business_name)
+                `)
                 .single();
 
             if (error) throw error;
@@ -300,6 +334,54 @@ router.put('/:id/status', verifyToken, async (req, res) => {
     }
 });
 
+// Cancel shipment (shipper only, only if still posted)
+router.post('/:id/cancel', verifyToken, requireRole('shipper'), async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        if (supabase) {
+            // Check current status
+            const { data: existing } = await supabase
+                .from('shipments')
+                .select('status')
+                .eq('id', id)
+                .eq('shipper_id', req.user.id)
+                .single();
+
+            if (!existing) {
+                return res.status(404).json({ error: 'Shipment not found' });
+            }
+
+            if (existing.status !== 'posted') {
+                return res.status(400).json({ error: 'Can only cancel shipments with status "posted"' });
+            }
+
+            const { data: shipment, error } = await supabase
+                .from('shipments')
+                .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+                .eq('id', id)
+                .select()
+                .single();
+
+            if (error) throw error;
+            res.json(shipment);
+        } else {
+            const index = mockShipments.findIndex(s => s.id === id && s.shipper_id === req.user.id);
+            if (index === -1) {
+                return res.status(404).json({ error: 'Shipment not found' });
+            }
+            if (mockShipments[index].status !== 'posted') {
+                return res.status(400).json({ error: 'Can only cancel shipments with status "posted"' });
+            }
+            mockShipments[index].status = 'cancelled';
+            mockShipments[index].updated_at = new Date().toISOString();
+            res.json(mockShipments[index]);
+        }
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // Get cargo types
 router.get('/types/cargo', (req, res) => {
     res.json(CARGO_TYPES);
@@ -309,5 +391,22 @@ router.get('/types/cargo', (req, res) => {
 router.get('/types/statuses', (req, res) => {
     res.json(SHIPMENT_STATUSES);
 });
+
+// Helper: Calculate distance between two points (Haversine formula)
+function calculateDistance(lat1, lon1, lat2, lon2) {
+    const R = 6371; // Earth's radius in km
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a =
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+        Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+}
+
+function toRad(deg) {
+    return deg * (Math.PI / 180);
+}
 
 export default router;

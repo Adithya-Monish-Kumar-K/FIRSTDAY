@@ -8,6 +8,9 @@ import crypto from 'crypto';
 
 const router = express.Router();
 
+// Checkpoint type enum matching database schema
+const CHECKPOINT_TYPES = ['pickup', 'handoff', 'delivery', 'security_check'];
+
 // Configure multer for image uploads
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
@@ -37,26 +40,68 @@ const upload = multer({
 // Mock checkpoints for development
 let mockCheckpoints = [];
 
-// Get checkpoints for a shipment
-router.get('/shipment/:shipmentId', verifyToken, async (req, res) => {
+// Get checkpoints for a route leg
+router.get('/route-leg/:routeLegId', verifyToken, async (req, res) => {
     try {
-        const { shipmentId } = req.params;
+        const { routeLegId } = req.params;
 
         if (supabase) {
             const { data: checkpoints, error } = await supabase
                 .from('checkpoints')
                 .select(`
-          *,
-          transporter:users!transporter_id(id, name, phone)
-        `)
-                .eq('shipment_id', shipmentId)
+                    *,
+                    verified_by:profiles!verified_by_user_id(id, business_name)
+                `)
+                .eq('route_leg_id', routeLegId)
                 .order('timestamp', { ascending: true });
 
             if (error) throw error;
             res.json(checkpoints);
         } else {
-            const checkpoints = mockCheckpoints.filter(c => c.shipment_id === shipmentId);
+            const checkpoints = mockCheckpoints.filter(c => c.route_leg_id === routeLegId);
             res.json(checkpoints);
+        }
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get all checkpoints for a shipment (via route_legs)
+router.get('/shipment/:shipmentId', verifyToken, async (req, res) => {
+    try {
+        const { shipmentId } = req.params;
+
+        if (supabase) {
+            // Get all route legs for this shipment, then their checkpoints
+            const { data: legs, error: legsError } = await supabase
+                .from('route_legs')
+                .select('id, leg_sequence_index')
+                .eq('shipment_id', shipmentId)
+                .order('leg_sequence_index', { ascending: true });
+
+            if (legsError) throw legsError;
+
+            if (!legs || legs.length === 0) {
+                return res.json([]);
+            }
+
+            const legIds = legs.map(l => l.id);
+
+            const { data: checkpoints, error } = await supabase
+                .from('checkpoints')
+                .select(`
+                    *,
+                    route_leg:route_legs(id, leg_sequence_index, transporter_id),
+                    verified_by:profiles!verified_by_user_id(id, business_name)
+                `)
+                .in('route_leg_id', legIds)
+                .order('timestamp', { ascending: true });
+
+            if (error) throw error;
+            res.json(checkpoints);
+        } else {
+            // Mock: filter by shipment_id through route_legs
+            res.json(mockCheckpoints);
         }
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -66,28 +111,40 @@ router.get('/shipment/:shipmentId', verifyToken, async (req, res) => {
 // Add checkpoint (transporter only)
 router.post('/', verifyToken, requireRole('transporter'), upload.single('image'), async (req, res) => {
     try {
-        const { shipment_id, location, lat, lng, status, notes, handoff_to_transporter_id } = req.body;
+        const { route_leg_id, type, location_name, notes, verified_by_user_id } = req.body;
 
-        if (!shipment_id || !location) {
-            return res.status(400).json({ error: 'Shipment ID and location are required' });
+        if (!route_leg_id || !type || !location_name) {
+            return res.status(400).json({ error: 'Route leg ID, type, and location name are required' });
+        }
+
+        if (!CHECKPOINT_TYPES.includes(type)) {
+            return res.status(400).json({ error: `Invalid type. Must be one of: ${CHECKPOINT_TYPES.join(', ')}` });
         }
 
         const checkpointData = {
             id: crypto.randomUUID(),
-            shipment_id,
-            transporter_id: req.user.id,
-            location,
-            lat: parseFloat(lat) || null,
-            lng: parseFloat(lng) || null,
-            status: status || 'arrived',
-            notes: notes || '',
-            image_url: req.file ? `/uploads/checkpoints/${req.file.filename}` : null,
-            handoff_to_transporter_id: handoff_to_transporter_id || null,
-            is_handoff: !!handoff_to_transporter_id,
-            timestamp: new Date().toISOString()
+            route_leg_id,
+            type,
+            location_name,
+            timestamp: new Date().toISOString(),
+            image_proof_url: req.file ? `/uploads/checkpoints/${req.file.filename}` : null,
+            verified_by_user_id: verified_by_user_id || null,
+            notes: notes || null
         };
 
         if (supabase) {
+            // Verify transporter owns this route leg
+            const { data: leg } = await supabase
+                .from('route_legs')
+                .select('id, transporter_id, shipment_id')
+                .eq('id', route_leg_id)
+                .eq('transporter_id', req.user.id)
+                .single();
+
+            if (!leg) {
+                return res.status(403).json({ error: 'You are not authorized to add checkpoints to this route leg' });
+            }
+
             // Insert checkpoint
             const { data: checkpoint, error } = await supabase
                 .from('checkpoints')
@@ -101,30 +158,39 @@ router.post('/', verifyToken, requireRole('transporter'), upload.single('image')
             const { data: shipment } = await supabase
                 .from('shipments')
                 .select(`
-          id,
-          shipper:users!shipper_id(email, name)
-        `)
-                .eq('id', shipment_id)
+                    id,
+                    shipper:profiles!shipper_id(email, business_name)
+                `)
+                .eq('id', leg.shipment_id)
                 .single();
 
             // Send email notification
             if (shipment?.shipper?.email) {
                 await sendCheckpointNotification(
                     shipment.shipper.email,
-                    { ...checkpointData, transporterName: req.user.name },
-                    shipment_id
+                    {
+                        location: location_name,
+                        status: type,
+                        timestamp: checkpointData.timestamp,
+                        transporterName: req.user.business_name || 'Transporter'
+                    },
+                    leg.shipment_id
                 );
             }
 
-            // If handoff, update shipment transporter
-            if (handoff_to_transporter_id) {
+            // Create notification record
+            if (shipment) {
                 await supabase
-                    .from('shipments')
-                    .update({
-                        transporter_id: handoff_to_transporter_id,
-                        updated_at: new Date().toISOString()
-                    })
-                    .eq('id', shipment_id);
+                    .from('notifications')
+                    .insert([{
+                        id: crypto.randomUUID(),
+                        user_id: shipment.shipper_id || shipment.shipper?.id,
+                        title: `Checkpoint Update: ${type}`,
+                        message: `Your shipment has reached ${location_name}`,
+                        related_shipment_id: leg.shipment_id,
+                        is_read: false,
+                        created_at: new Date().toISOString()
+                    }]);
             }
 
             res.status(201).json(checkpoint);
@@ -137,19 +203,19 @@ router.post('/', verifyToken, requireRole('transporter'), upload.single('image')
     }
 });
 
-// Get latest checkpoint for a shipment
-router.get('/latest/:shipmentId', verifyToken, async (req, res) => {
+// Get latest checkpoint for a route leg
+router.get('/latest/:routeLegId', verifyToken, async (req, res) => {
     try {
-        const { shipmentId } = req.params;
+        const { routeLegId } = req.params;
 
         if (supabase) {
             const { data: checkpoint, error } = await supabase
                 .from('checkpoints')
                 .select(`
-          *,
-          transporter:users!transporter_id(id, name, phone)
-        `)
-                .eq('shipment_id', shipmentId)
+                    *,
+                    verified_by:profiles!verified_by_user_id(id, business_name)
+                `)
+                .eq('route_leg_id', routeLegId)
                 .order('timestamp', { ascending: false })
                 .limit(1)
                 .single();
@@ -158,7 +224,7 @@ router.get('/latest/:shipmentId', verifyToken, async (req, res) => {
             res.json(checkpoint || null);
         } else {
             const checkpoints = mockCheckpoints
-                .filter(c => c.shipment_id === shipmentId)
+                .filter(c => c.route_leg_id === routeLegId)
                 .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
             res.json(checkpoints[0] || null);
         }
@@ -167,31 +233,39 @@ router.get('/latest/:shipmentId', verifyToken, async (req, res) => {
     }
 });
 
-// Verify handoff with image
+// Record handoff checkpoint (when cargo transfers between transporters)
 router.post('/handoff', verifyToken, requireRole('transporter'), upload.single('verification_image'), async (req, res) => {
     try {
-        const { shipment_id, from_transporter_id, notes, location, lat, lng } = req.body;
+        const { route_leg_id, location_name, notes, from_transporter_verified } = req.body;
 
-        if (!shipment_id || !req.file) {
-            return res.status(400).json({ error: 'Shipment ID and verification image are required' });
+        if (!route_leg_id || !req.file) {
+            return res.status(400).json({ error: 'Route leg ID and verification image are required' });
         }
 
         const handoffData = {
             id: crypto.randomUUID(),
-            shipment_id,
-            transporter_id: req.user.id, // New transporter (receiving)
-            from_transporter_id: from_transporter_id || null,
-            location: location || 'Handoff Location',
-            lat: parseFloat(lat) || null,
-            lng: parseFloat(lng) || null,
-            status: 'handoff_complete',
-            notes: notes || 'Cargo received',
-            image_url: `/uploads/checkpoints/${req.file.filename}`,
-            is_handoff: true,
-            timestamp: new Date().toISOString()
+            route_leg_id,
+            type: 'handoff',
+            location_name: location_name || 'Handoff Location',
+            timestamp: new Date().toISOString(),
+            image_proof_url: `/uploads/checkpoints/${req.file.filename}`,
+            verified_by_user_id: from_transporter_verified ? req.user.id : null,
+            notes: notes || 'Cargo handoff completed'
         };
 
         if (supabase) {
+            // Verify the new transporter owns this leg (receiving transporter)
+            const { data: leg } = await supabase
+                .from('route_legs')
+                .select('id, transporter_id, shipment_id, leg_sequence_index')
+                .eq('id', route_leg_id)
+                .eq('transporter_id', req.user.id)
+                .single();
+
+            if (!leg) {
+                return res.status(403).json({ error: 'You are not authorized for this route leg' });
+            }
+
             // Insert handoff checkpoint
             const { data: checkpoint, error } = await supabase
                 .from('checkpoints')
@@ -201,47 +275,125 @@ router.post('/handoff', verifyToken, requireRole('transporter'), upload.single('
 
             if (error) throw error;
 
-            // Update shipment with new transporter
-            await supabase
-                .from('shipments')
-                .update({
-                    transporter_id: req.user.id,
-                    status: 'in_transit',
-                    updated_at: new Date().toISOString()
-                })
-                .eq('id', shipment_id);
-
             // Get shipment for notification
             const { data: shipment } = await supabase
                 .from('shipments')
-                .select(`shipper:users!shipper_id(email)`)
-                .eq('id', shipment_id)
+                .select(`shipper:profiles!shipper_id(email, id)`)
+                .eq('id', leg.shipment_id)
                 .single();
 
             if (shipment?.shipper?.email) {
                 await sendCheckpointNotification(
                     shipment.shipper.email,
-                    { ...handoffData, transporterName: req.user.name },
-                    shipment_id
+                    {
+                        location: handoffData.location_name,
+                        status: 'handoff',
+                        timestamp: handoffData.timestamp,
+                        transporterName: req.user.business_name || 'New Transporter'
+                    },
+                    leg.shipment_id
                 );
+            }
+
+            // Create notification
+            if (shipment?.shipper?.id) {
+                await supabase
+                    .from('notifications')
+                    .insert([{
+                        id: crypto.randomUUID(),
+                        user_id: shipment.shipper.id,
+                        title: 'Cargo Handoff Complete',
+                        message: `Your shipment was transferred to a new transporter at ${handoffData.location_name}`,
+                        related_shipment_id: leg.shipment_id,
+                        is_read: false,
+                        created_at: new Date().toISOString()
+                    }]);
             }
 
             res.status(201).json(checkpoint);
         } else {
             mockCheckpoints.push(handoffData);
-
-            // Update mock shipment
-            const shipmentIndex = global.mockShipments?.findIndex(s => s.id === shipment_id);
-            if (shipmentIndex !== undefined && shipmentIndex !== -1) {
-                global.mockShipments[shipmentIndex].transporter_id = req.user.id;
-                global.mockShipments[shipmentIndex].status = 'in_transit';
-            }
-
             res.status(201).json(handoffData);
         }
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
+});
+
+// Security check checkpoint (with mandatory image)
+router.post('/security-check', verifyToken, requireRole('transporter'), upload.single('security_image'), async (req, res) => {
+    try {
+        const { route_leg_id, location_name, notes } = req.body;
+
+        if (!route_leg_id || !req.file) {
+            return res.status(400).json({ error: 'Route leg ID and security image are required for security checks' });
+        }
+
+        const securityCheckData = {
+            id: crypto.randomUUID(),
+            route_leg_id,
+            type: 'security_check',
+            location_name: location_name || 'Security Checkpoint',
+            timestamp: new Date().toISOString(),
+            image_proof_url: `/uploads/checkpoints/${req.file.filename}`,
+            verified_by_user_id: null,
+            notes: notes || 'Security verification checkpoint'
+        };
+
+        if (supabase) {
+            // Verify transporter owns this route leg
+            const { data: leg } = await supabase
+                .from('route_legs')
+                .select('id, transporter_id, shipment_id')
+                .eq('id', route_leg_id)
+                .eq('transporter_id', req.user.id)
+                .single();
+
+            if (!leg) {
+                return res.status(403).json({ error: 'You are not authorized for this route leg' });
+            }
+
+            const { data: checkpoint, error } = await supabase
+                .from('checkpoints')
+                .insert([securityCheckData])
+                .select()
+                .single();
+
+            if (error) throw error;
+
+            // Get shipment for notification
+            const { data: shipment } = await supabase
+                .from('shipments')
+                .select(`shipper:profiles!shipper_id(email, id)`)
+                .eq('id', leg.shipment_id)
+                .single();
+
+            if (shipment?.shipper?.email) {
+                await sendCheckpointNotification(
+                    shipment.shipper.email,
+                    {
+                        location: securityCheckData.location_name,
+                        status: 'security_check',
+                        timestamp: securityCheckData.timestamp,
+                        transporterName: req.user.business_name || 'Transporter'
+                    },
+                    leg.shipment_id
+                );
+            }
+
+            res.status(201).json(checkpoint);
+        } else {
+            mockCheckpoints.push(securityCheckData);
+            res.status(201).json(securityCheckData);
+        }
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get checkpoint types
+router.get('/types/list', (req, res) => {
+    res.json(CHECKPOINT_TYPES);
 });
 
 export default router;

@@ -1,11 +1,12 @@
 import express from 'express';
-import supabase from '../config/database.js';
+import { supabase } from '../config/database.js';
 import { verifyToken } from '../middleware/auth.js';
+import crypto from 'crypto';
 
 const router = express.Router();
 
 // Mock data for development
-const mockRatings = [
+let mockRatings = [
     {
         id: '1',
         shipment_id: 'ship-001',
@@ -45,7 +46,10 @@ router.get('/user/:userId', async (req, res) => {
 
         const { data, error } = await supabase
             .from('ratings')
-            .select('*, rater:rater_id(name)')
+            .select(`
+                *,
+                rater:profiles!rater_id(id, business_name)
+            `)
             .eq('rated_user_id', userId)
             .order('created_at', { ascending: false });
 
@@ -76,7 +80,10 @@ router.get('/shipment/:shipmentId', async (req, res) => {
 
         const { data, error } = await supabase
             .from('ratings')
-            .select('*, rater:rater_id(name)')
+            .select(`
+                *,
+                rater:profiles!rater_id(id, business_name)
+            `)
             .eq('shipment_id', shipmentId);
 
         if (error) throw error;
@@ -103,7 +110,11 @@ router.get('/my-ratings', verifyToken, async (req, res) => {
 
         const { data, error } = await supabase
             .from('ratings')
-            .select('*, rater:rater_id(name), shipment:shipment_id(origin, destination)')
+            .select(`
+                *,
+                rater:profiles!rater_id(id, business_name),
+                shipment:shipments!shipment_id(id, origin_address, dest_address)
+            `)
             .eq('rated_user_id', req.user.id)
             .order('created_at', { ascending: false });
 
@@ -129,25 +140,30 @@ router.post('/', verifyToken, async (req, res) => {
         const { shipment_id, rated_user_id, rating, review } = req.body;
 
         if (!shipment_id || !rated_user_id || !rating) {
-            return res.status(400).json({ error: 'Missing required fields' });
+            return res.status(400).json({ error: 'Shipment ID, rated user ID, and rating are required' });
         }
 
         if (rating < 1 || rating > 5) {
             return res.status(400).json({ error: 'Rating must be between 1 and 5' });
         }
 
+        if (rated_user_id === req.user.id) {
+            return res.status(400).json({ error: 'You cannot rate yourself' });
+        }
+
+        const ratingData = {
+            id: crypto.randomUUID(),
+            shipment_id,
+            rater_id: req.user.id,
+            rated_user_id,
+            rating: parseInt(rating),
+            review: review || '',
+            created_at: new Date().toISOString()
+        };
+
         if (!supabase) {
-            const newRating = {
-                id: `rating-${Date.now()}`,
-                shipment_id,
-                rater_id: req.user.id,
-                rated_user_id,
-                rating,
-                review: review || '',
-                created_at: new Date().toISOString()
-            };
-            mockRatings.push(newRating);
-            return res.status(201).json(newRating);
+            mockRatings.push(ratingData);
+            return res.status(201).json(ratingData);
         }
 
         // Check if user has already rated this shipment
@@ -164,31 +180,14 @@ router.post('/', verifyToken, async (req, res) => {
 
         const { data, error } = await supabase
             .from('ratings')
-            .insert([{
-                shipment_id,
-                rater_id: req.user.id,
-                rated_user_id,
-                rating,
-                review: review || ''
-            }])
+            .insert([ratingData])
             .select()
             .single();
 
         if (error) throw error;
 
-        // Update user's average rating
-        const { data: allRatings } = await supabase
-            .from('ratings')
-            .select('rating')
-            .eq('rated_user_id', rated_user_id);
-
-        if (allRatings && allRatings.length > 0) {
-            const avgRating = allRatings.reduce((sum, r) => sum + r.rating, 0) / allRatings.length;
-            await supabase
-                .from('users')
-                .update({ rating: Math.round(avgRating * 10) / 10 })
-                .eq('id', rated_user_id);
-        }
+        // Update user's average rating in profiles (if you track it there)
+        // This could be done via a database trigger for better consistency
 
         res.status(201).json(data);
     } catch (error) {
@@ -202,18 +201,27 @@ router.put('/:id', verifyToken, async (req, res) => {
         const { id } = req.params;
         const { rating, review } = req.body;
 
+        if (rating !== undefined && (rating < 1 || rating > 5)) {
+            return res.status(400).json({ error: 'Rating must be between 1 and 5' });
+        }
+
+        const updateData = {
+            ...(rating !== undefined && { rating: parseInt(rating) }),
+            ...(review !== undefined && { review })
+        };
+
         if (!supabase) {
             const index = mockRatings.findIndex(r => r.id === id && r.rater_id === req.user.id);
             if (index === -1) {
                 return res.status(404).json({ error: 'Rating not found' });
             }
-            mockRatings[index] = { ...mockRatings[index], rating, review };
+            mockRatings[index] = { ...mockRatings[index], ...updateData };
             return res.json(mockRatings[index]);
         }
 
         const { data, error } = await supabase
             .from('ratings')
-            .update({ rating, review })
+            .update(updateData)
             .eq('id', id)
             .eq('rater_id', req.user.id)
             .select()

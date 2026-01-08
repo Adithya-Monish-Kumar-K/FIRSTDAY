@@ -11,13 +11,15 @@ let mockReturnTrips = [
         id: '1',
         transporter_id: '1',
         vehicle_id: '1',
-        origin: { lat: 12.9716, lng: 77.5946, address: 'Bangalore, Karnataka' },
-        destination: { lat: 13.0827, lng: 80.2707, address: 'Chennai, Tamil Nadu' },
+        origin_address: 'Bangalore, Karnataka',
+        origin_lat: 12.9716,
+        origin_lng: 77.5946,
+        dest_address: 'Chennai, Tamil Nadu',
+        dest_lat: 13.0827,
+        dest_lng: 80.2707,
         departure_date: new Date(Date.now() + 86400000).toISOString(),
-        available_capacity_tons: 8,
-        available_volume: 40,
-        vehicle_type: 'covered',
-        price_per_ton_km: 8,
+        available_capacity_kg: 8000,
+        price_per_kg_km: 0.08,
         notes: 'Returning empty after delivery',
         status: 'available',
         created_at: new Date().toISOString()
@@ -41,15 +43,15 @@ router.get('/available', verifyToken, async (req, res) => {
             let query = supabase
                 .from('return_trips')
                 .select(`
-          *,
-          transporter:users!transporter_id(id, name, phone, rating),
-          vehicle:vehicles(id, vehicle_number, type, capacity_tons)
-        `)
+                    *,
+                    transporter:profiles!transporter_id(id, business_name, phone, verified),
+                    vehicle:vehicles(id, plate_number, vehicle_type, max_capacity_kg)
+                `)
                 .eq('status', 'available')
                 .gte('departure_date', new Date().toISOString());
 
             if (vehicle_type) query = query.eq('vehicle_type', vehicle_type);
-            if (min_capacity) query = query.gte('available_capacity_tons', parseFloat(min_capacity));
+            if (min_capacity) query = query.gte('available_capacity_kg', parseFloat(min_capacity));
             if (departure_from) query = query.gte('departure_date', departure_from);
             if (departure_to) query = query.lte('departure_date', departure_to);
 
@@ -63,7 +65,7 @@ router.get('/available', verifyToken, async (req, res) => {
                 filteredTrips = filteredTrips.filter(trip => {
                     const distance = calculateDistance(
                         parseFloat(origin_lat), parseFloat(origin_lng),
-                        trip.origin.lat, trip.origin.lng
+                        trip.origin_lat, trip.origin_lng
                     );
                     return distance <= parseFloat(radius_km);
                 });
@@ -77,7 +79,7 @@ router.get('/available', verifyToken, async (req, res) => {
             );
 
             if (vehicle_type) trips = trips.filter(t => t.vehicle_type === vehicle_type);
-            if (min_capacity) trips = trips.filter(t => t.available_capacity_tons >= parseFloat(min_capacity));
+            if (min_capacity) trips = trips.filter(t => t.available_capacity_kg >= parseFloat(min_capacity));
 
             res.json(trips);
         }
@@ -91,44 +93,55 @@ router.post('/', verifyToken, requireRole('transporter'), async (req, res) => {
     try {
         const {
             vehicle_id,
-            origin,
-            destination,
+            origin_address,
+            origin_lat,
+            origin_lng,
+            dest_address,
+            dest_lat,
+            dest_lng,
             departure_date,
-            available_capacity_tons,
-            available_volume,
-            price_per_ton_km,
+            available_capacity_kg,
+            price_per_kg_km,
             notes
         } = req.body;
 
-        if (!vehicle_id || !origin || !destination || !departure_date) {
+        if (!vehicle_id || !origin_address || !origin_lat || !origin_lng ||
+            !dest_address || !dest_lat || !dest_lng || !departure_date) {
             return res.status(400).json({
-                error: 'Vehicle ID, origin, destination, and departure date are required'
+                error: 'Vehicle ID, origin (address, lat, lng), destination (address, lat, lng), and departure date are required'
             });
         }
 
         // Get vehicle details
-        let vehicleType = 'covered';
+        let vehicleType = 'lorry';
         if (supabase) {
             const { data: vehicle } = await supabase
                 .from('vehicles')
-                .select('type, capacity_tons')
+                .select('vehicle_type, max_capacity_kg')
                 .eq('id', vehicle_id)
+                .eq('transporter_id', req.user.id)
                 .single();
 
-            if (vehicle) vehicleType = vehicle.type;
+            if (!vehicle) {
+                return res.status(400).json({ error: 'Vehicle not found or does not belong to you' });
+            }
+            vehicleType = vehicle.vehicle_type;
         }
 
         const tripData = {
             id: crypto.randomUUID(),
             transporter_id: req.user.id,
             vehicle_id,
-            origin,
-            destination,
+            origin_address,
+            origin_lat: parseFloat(origin_lat),
+            origin_lng: parseFloat(origin_lng),
+            dest_address,
+            dest_lat: parseFloat(dest_lat),
+            dest_lng: parseFloat(dest_lng),
             departure_date,
-            available_capacity_tons: parseFloat(available_capacity_tons) || 0,
-            available_volume: parseFloat(available_volume) || 0,
+            available_capacity_kg: parseFloat(available_capacity_kg) || 0,
             vehicle_type: vehicleType,
-            price_per_ton_km: parseFloat(price_per_ton_km) || 8,
+            price_per_kg_km: parseFloat(price_per_kg_km) || 0.08,
             notes: notes || '',
             status: 'available',
             created_at: new Date().toISOString()
@@ -159,9 +172,9 @@ router.get('/my-trips', verifyToken, requireRole('transporter'), async (req, res
             const { data: trips, error } = await supabase
                 .from('return_trips')
                 .select(`
-          *,
-          vehicle:vehicles(id, vehicle_number, type)
-        `)
+                    *,
+                    vehicle:vehicles(id, plate_number, vehicle_type)
+                `)
                 .eq('transporter_id', req.user.id)
                 .order('departure_date', { ascending: true });
 
@@ -180,40 +193,41 @@ router.get('/my-trips', verifyToken, requireRole('transporter'), async (req, res
 router.post('/match', verifyToken, async (req, res) => {
     try {
         const {
-            origin,
-            destination,
-            weight,
+            origin_lat,
+            origin_lng,
+            dest_lat,
+            dest_lng,
+            weight_kg,
             pickup_date,
-            vehicle_type_required,
             max_deviation_km = 30
         } = req.body;
 
-        if (!origin || !destination) {
-            return res.status(400).json({ error: 'Origin and destination are required' });
+        if (!origin_lat || !origin_lng || !dest_lat || !dest_lng) {
+            return res.status(400).json({ error: 'Origin and destination coordinates are required' });
         }
 
         if (supabase) {
             const { data: trips, error } = await supabase
                 .from('return_trips')
                 .select(`
-          *,
-          transporter:users!transporter_id(id, name, phone, rating),
-          vehicle:vehicles(id, vehicle_number, type, capacity_tons)
-        `)
+                    *,
+                    transporter:profiles!transporter_id(id, business_name, phone, verified),
+                    vehicle:vehicles(id, plate_number, vehicle_type, max_capacity_kg)
+                `)
                 .eq('status', 'available')
-                .gte('available_capacity_tons', weight || 0);
+                .gte('available_capacity_kg', weight_kg || 0);
 
             if (error) throw error;
 
             // Score each trip based on route compatibility
             const scoredTrips = trips.map(trip => {
                 const originDeviation = calculateDistance(
-                    origin.lat, origin.lng,
-                    trip.origin.lat, trip.origin.lng
+                    parseFloat(origin_lat), parseFloat(origin_lng),
+                    trip.origin_lat, trip.origin_lng
                 );
                 const destDeviation = calculateDistance(
-                    destination.lat, destination.lng,
-                    trip.destination.lat, trip.destination.lng
+                    parseFloat(dest_lat), parseFloat(dest_lng),
+                    trip.dest_lat, trip.dest_lng
                 );
 
                 // Check if shipment is along the trip's route
@@ -255,8 +269,20 @@ router.post('/match', verifyToken, async (req, res) => {
 router.put('/:id', verifyToken, requireRole('transporter'), async (req, res) => {
     try {
         const { id } = req.params;
+        const {
+            departure_date,
+            available_capacity_kg,
+            price_per_kg_km,
+            notes,
+            status
+        } = req.body;
+
         const updateData = {
-            ...req.body,
+            ...(departure_date && { departure_date }),
+            ...(available_capacity_kg !== undefined && { available_capacity_kg: parseFloat(available_capacity_kg) }),
+            ...(price_per_kg_km !== undefined && { price_per_kg_km: parseFloat(price_per_kg_km) }),
+            ...(notes !== undefined && { notes }),
+            ...(status && { status }),
             updated_at: new Date().toISOString()
         };
 
