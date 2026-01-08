@@ -1,0 +1,56 @@
+version: '3.8'
+
+services:
+  # FastAPI Optimizer Service
+  optimizer:
+    build:
+      context: ./optimizer
+      dockerfile: Dockerfile
+    container_name: logitech-optimizer
+    ports:
+      - "8000:8000"
+    environment:
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_KEY=${SUPABASE_KEY}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/docs"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # Node.js Express Server
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: logitech-server
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_KEY=${SUPABASE_KEY}
+      - JWT_SECRET=${JWT_SECRET:-your-jwt-secret-key}
+      - OPTIMIZER_URL=http://optimizer:8000
+      - FRONTEND_URL=http://localhost:5173
+      - GOOGLE_MAP_API=${GOOGLE_MAP_API}
+    depends_on:
+      - optimizer
+    restart: unless-stopped
+
+  # Vite React Client
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    container_name: logitech-client
+    ports:
+      - "5173:80"
+    depends_on:
+      - server
+    restart: unless-stopped
+
+networks:
+  default:
+    name: logitech-network

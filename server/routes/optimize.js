@@ -3,11 +3,17 @@ import { verifyToken } from '../middleware/auth.js';
 import { spawn } from 'child_process';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 const router = express.Router();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// FastAPI optimizer service URL
+const OPTIMIZER_URL = process.env.OPTIMIZER_URL || 'http://localhost:8000';
 
 // Optimize routes using Google OR-Tools VRP
 router.post('/vrp', verifyToken, async (req, res) => {
@@ -187,6 +193,110 @@ router.post('/match-routes', verifyToken, async (req, res) => {
                 !matches.find(m => m.shipment.id === s.id)
             )
         });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Optimize shipment routes using FastAPI optimizer service
+// Transporters are automatically fetched from Supabase by the optimizer
+router.post('/shipment', verifyToken, async (req, res) => {
+    try {
+        const {
+            origin,
+            destination,
+            product_type,
+            urgency_multiplier,
+            shipments
+        } = req.body;
+
+        // Validate required fields
+        if (!origin || !origin.lat || !origin.lng) {
+            return res.status(400).json({ error: 'Origin with lat and lng is required' });
+        }
+
+        if (!destination || !destination.lat || !destination.lng) {
+            return res.status(400).json({ error: 'Destination with lat and lng is required' });
+        }
+
+        if (!product_type) {
+            return res.status(400).json({ error: 'Product type is required' });
+        }
+
+        if (!shipments || !shipments.length) {
+            return res.status(400).json({ error: 'At least one shipment is required' });
+        }
+
+        // Validate product type
+        const validProductTypes = ['medicine', 'furniture', 'electronics', 'perishable', 'other'];
+        if (!validProductTypes.includes(product_type)) {
+            return res.status(400).json({
+                error: `Invalid product_type. Must be one of: ${validProductTypes.join(', ')}`
+            });
+        }
+
+        // Validate urgency multiplier
+        const urgency = urgency_multiplier || 1.0;
+        if (urgency < 1 || urgency > 3) {
+            return res.status(400).json({ error: 'Urgency multiplier must be between 1 and 3' });
+        }
+
+        // Prepare request for FastAPI optimizer
+        const optimizerRequest = {
+            origin: {
+                lat: parseFloat(origin.lat),
+                lng: parseFloat(origin.lng)
+            },
+            destination: {
+                lat: parseFloat(destination.lat),
+                lng: parseFloat(destination.lng)
+            },
+            product_type,
+            urgency_multiplier: urgency,
+            shipments: shipments.map(s => ({
+                id: s.id,
+                weight_kg: parseFloat(s.weight_kg || s.weight || 0)
+            }))
+        };
+
+        // Call FastAPI optimizer service
+        const optimizerUrl = `${OPTIMIZER_URL}/optimize`;
+
+        try {
+            const response = await fetch(optimizerUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(optimizerRequest)
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                return res.status(response.status).json({
+                    error: errorData.detail || 'Optimizer service returned an error',
+                    optimizer_status: response.status
+                });
+            }
+
+            const optimizedRoutes = await response.json();
+
+            res.json({
+                success: true,
+                request: optimizerRequest,
+                optimized_routes: optimizedRoutes,
+                route_count: optimizedRoutes.length
+            });
+        } catch (fetchError) {
+            // Fallback if optimizer service is not available
+            console.error('FastAPI optimizer service not available:', fetchError.message);
+
+            return res.status(503).json({
+                error: 'Optimizer service is not available',
+                message: 'Please ensure the FastAPI optimizer is running on ' + OPTIMIZER_URL,
+                fallback_available: false
+            });
+        }
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
