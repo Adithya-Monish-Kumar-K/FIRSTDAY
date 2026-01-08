@@ -1,0 +1,300 @@
+.my-shipments {
+    animation: fadeIn var(--transition-slow);
+}
+
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: var(--space-6);
+}
+
+.page-header h1 {
+    font-size: 1.75rem;
+    margin-bottom: var(--space-1);
+}
+
+/* Filters */
+.filters-section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    margin-bottom: var(--space-6);
+}
+
+.search-box {
+    max-width: 400px;
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.search-box svg {
+    position: absolute;
+    left: var(--space-4);
+    color: var(--gray-500);
+}
+
+.search-box input {
+    width: 100%;
+    padding: var(--space-3) var(--space-4) var(--space-3) var(--space-11);
+    background: var(--dark-surface);
+    border: 1px solid var(--dark-border);
+    border-radius: var(--radius-lg);
+    color: var(--dark-text);
+    font-size: 0.9375rem;
+}
+
+.search-box input:focus {
+    outline: none;
+    border-color: var(--primary-500);
+}
+
+.status-tabs {
+    display: flex;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+}
+
+.status-tab {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-4);
+    background: var(--dark-surface);
+    border: 1px solid var(--dark-border);
+    border-radius: var(--radius-full);
+    color: var(--dark-text-secondary);
+    font-size: 0.875rem;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.status-tab:hover {
+    border-color: var(--gray-600);
+    color: var(--dark-text);
+}
+
+.status-tab.active {
+    background: var(--primary-600);
+    border-color: var(--primary-600);
+    color: white;
+}
+
+.status-tab .count {
+    padding: 2px 6px;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: var(--radius-full);
+    font-size: 0.75rem;
+}
+
+.status-tab.active .count {
+    background: rgba(255, 255, 255, 0.3);
+}
+
+/* Loading & Empty States */
+.loading-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-16);
+    color: var(--dark-text-secondary);
+}
+
+.loading-state .spinner {
+    margin-bottom: var(--space-4);
+}
+
+.empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-16);
+    text-align: center;
+}
+
+.empty-state svg {
+    color: var(--gray-600);
+    margin-bottom: var(--space-6);
+}
+
+.empty-state h3 {
+    font-size: 1.25rem;
+    margin-bottom: var(--space-2);
+}
+
+.empty-state p {
+    color: var(--dark-text-secondary);
+    margin-bottom: var(--space-6);
+    max-width: 400px;
+}
+
+/* Shipments Table */
+.shipments-table {
+    background: var(--dark-surface);
+    border: 1px solid var(--dark-border);
+    border-radius: var(--radius-xl);
+    overflow: hidden;
+}
+
+.shipments-table table {
+    width: 100%;
+}
+
+.shipments-table th {
+    background: var(--dark-surface-elevated);
+    padding: var(--space-4);
+    text-align: left;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--dark-text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.shipments-table td {
+    padding: var(--space-4);
+    border-bottom: 1px solid var(--dark-border);
+}
+
+.shipments-table tr:last-child td {
+    border-bottom: none;
+}
+
+.shipments-table tr:hover td {
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.shipment-id {
+    font-family: monospace;
+    font-size: 0.875rem;
+    color: var(--dark-text-secondary);
+}
+
+.route-cell {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+}
+
+.route-from,
+.route-to {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: 0.875rem;
+}
+
+.route-from svg.origin {
+    color: var(--success-400);
+}
+
+.route-to svg.destination {
+    color: var(--error-400);
+}
+
+.cargo-cell {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+}
+
+.cargo-type {
+    font-size: 0.875rem;
+    text-transform: capitalize;
+}
+
+.cargo-weight {
+    font-size: 0.75rem;
+    color: var(--dark-text-secondary);
+}
+
+.status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-1) var(--space-3);
+    border-radius: var(--radius-full);
+    font-size: 0.8125rem;
+    font-weight: 500;
+    text-transform: capitalize;
+}
+
+.status-warning {
+    background: rgba(245, 158, 11, 0.15);
+    color: var(--warning-400);
+}
+
+.status-primary {
+    background: rgba(99, 102, 241, 0.15);
+    color: var(--primary-400);
+}
+
+.status-success {
+    background: rgba(16, 185, 129, 0.15);
+    color: var(--success-400);
+}
+
+.status-error {
+    background: rgba(239, 68, 68, 0.15);
+    color: var(--error-400);
+}
+
+.status-pending {
+    color: var(--warning-400);
+}
+
+.status-accepted,
+.status-picked,
+.status-transit {
+    color: var(--primary-400);
+}
+
+.status-delivered {
+    color: var(--success-400);
+}
+
+.status-cancelled {
+    color: var(--error-400);
+}
+
+.date-cell {
+    font-size: 0.875rem;
+    color: var(--dark-text-secondary);
+}
+
+.price-cell {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: var(--primary-400);
+}
+
+/* Responsive */
+@media (max-width: 1024px) {
+    .shipments-table {
+        overflow-x: auto;
+    }
+
+    .shipments-table table {
+        min-width: 800px;
+    }
+}
+
+@media (max-width: 768px) {
+    .page-header {
+        flex-direction: column;
+        gap: var(--space-4);
+    }
+
+    .status-tabs {
+        overflow-x: auto;
+        flex-wrap: nowrap;
+        padding-bottom: var(--space-2);
+    }
+
+    .status-tab {
+        white-space: nowrap;
+    }
+}

@@ -1,0 +1,355 @@
+import express from 'express';
+import { verifyToken } from '../middleware/auth.js';
+import { spawn } from 'child_process';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const router = express.Router();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Optimize routes using Google OR-Tools VRP
+router.post('/vrp', verifyToken, async (req, res) => {
+    try {
+        const {
+            depot,
+            locations,
+            demands,
+            vehicle_capacities,
+            distance_matrix,
+            time_matrix,
+            num_vehicles
+        } = req.body;
+
+        if (!locations || !locations.length) {
+            return res.status(400).json({ error: 'Locations are required' });
+        }
+
+        // If distance matrix not provided, create a simple one
+        const matrix = distance_matrix || createSimpleDistanceMatrix(locations);
+
+        // Prepare input for Python VRP solver
+        const vrpInput = {
+            distance_matrix: matrix,
+            demands: demands || locations.map(() => 1),
+            vehicle_capacities: vehicle_capacities || [locations.length],
+            num_vehicles: num_vehicles || 1,
+            depot: depot || 0
+        };
+
+        // Try to call Python VRP solver
+        try {
+            const result = await runVRPSolver(vrpInput);
+            res.json(result);
+        } catch (pythonError) {
+            // Fallback to simple greedy solver if Python not available
+            console.warn('Python VRP solver not available, using fallback:', pythonError.message);
+            const fallbackResult = solveVRPGreedy(vrpInput);
+            res.json(fallbackResult);
+        }
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Optimize delivery order for a single vehicle
+router.post('/optimize-order', verifyToken, async (req, res) => {
+    try {
+        const { origin, destinations, return_to_origin = false } = req.body;
+
+        if (!origin || !destinations?.length) {
+            return res.status(400).json({ error: 'Origin and destinations are required' });
+        }
+
+        // Create locations array with origin first
+        const allLocations = [origin, ...destinations];
+        const n = allLocations.length;
+
+        // Create simple distance matrix based on coordinates
+        const matrix = [];
+        for (let i = 0; i < n; i++) {
+            matrix[i] = [];
+            for (let j = 0; j < n; j++) {
+                if (i === j) {
+                    matrix[i][j] = 0;
+                } else {
+                    matrix[i][j] = calculateDistance(
+                        allLocations[i].lat, allLocations[i].lng,
+                        allLocations[j].lat, allLocations[j].lng
+                    );
+                }
+            }
+        }
+
+        // Simple nearest neighbor algorithm
+        const visited = new Set([0]); // Start from depot
+        const route = [0];
+        let current = 0;
+        let totalDistance = 0;
+
+        while (visited.size < n) {
+            let nearestDist = Infinity;
+            let nearest = -1;
+
+            for (let j = 0; j < n; j++) {
+                if (!visited.has(j) && matrix[current][j] < nearestDist) {
+                    nearestDist = matrix[current][j];
+                    nearest = j;
+                }
+            }
+
+            if (nearest !== -1) {
+                route.push(nearest);
+                visited.add(nearest);
+                totalDistance += nearestDist;
+                current = nearest;
+            }
+        }
+
+        if (return_to_origin) {
+            totalDistance += matrix[current][0];
+            route.push(0);
+        }
+
+        // Map route indices back to locations
+        const optimizedRoute = route.map(idx => ({
+            ...allLocations[idx],
+            order: route.indexOf(idx)
+        }));
+
+        res.json({
+            optimized_route: optimizedRoute,
+            total_distance_km: Math.round(totalDistance * 10) / 10,
+            estimated_time_hours: Math.round(totalDistance / 50 * 10) / 10, // Assuming 50 km/h average
+            savings_percentage: calculateSavings(destinations, optimizedRoute.slice(1))
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Match compatible routes for load sharing
+router.post('/match-routes', verifyToken, async (req, res) => {
+    try {
+        const { shipments, available_routes } = req.body;
+
+        if (!shipments?.length || !available_routes?.length) {
+            return res.status(400).json({ error: 'Shipments and available routes are required' });
+        }
+
+        const matches = [];
+
+        for (const shipment of shipments) {
+            const compatibleRoutes = available_routes
+                .map(route => {
+                    const originDeviation = calculateDistance(
+                        shipment.origin.lat, shipment.origin.lng,
+                        route.origin.lat, route.origin.lng
+                    );
+                    const destDeviation = calculateDistance(
+                        shipment.destination.lat, shipment.destination.lng,
+                        route.destination.lat, route.destination.lng
+                    );
+
+                    // Check if route has capacity
+                    const hasCapacity = route.available_capacity >= shipment.weight;
+
+                    // Calculate compatibility score
+                    const maxDeviation = 50; // km
+                    const deviationScore = Math.max(0, 100 - ((originDeviation + destDeviation) / maxDeviation) * 100);
+
+                    return {
+                        route,
+                        shipment_id: shipment.id,
+                        origin_deviation_km: Math.round(originDeviation * 10) / 10,
+                        destination_deviation_km: Math.round(destDeviation * 10) / 10,
+                        has_capacity: hasCapacity,
+                        compatibility_score: hasCapacity ? Math.round(deviationScore) : 0,
+                        is_compatible: hasCapacity && deviationScore > 30
+                    };
+                })
+                .filter(m => m.is_compatible)
+                .sort((a, b) => b.compatibility_score - a.compatibility_score);
+
+            if (compatibleRoutes.length > 0) {
+                matches.push({
+                    shipment,
+                    best_match: compatibleRoutes[0],
+                    alternatives: compatibleRoutes.slice(1, 3)
+                });
+            }
+        }
+
+        res.json({
+            matches,
+            unmatched_shipments: shipments.filter(s =>
+                !matches.find(m => m.shipment.id === s.id)
+            )
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Run Python VRP solver
+function runVRPSolver(input) {
+    return new Promise((resolve, reject) => {
+        const pythonPath = process.platform === 'win32' ? 'python' : 'python3';
+        const scriptPath = path.join(__dirname, '..', '..', 'optimization', 'vrp_solver.py');
+
+        const python = spawn(pythonPath, [scriptPath]);
+
+        let stdout = '';
+        let stderr = '';
+
+        python.stdin.write(JSON.stringify(input));
+        python.stdin.end();
+
+        python.stdout.on('data', (data) => {
+            stdout += data.toString();
+        });
+
+        python.stderr.on('data', (data) => {
+            stderr += data.toString();
+        });
+
+        python.on('close', (code) => {
+            if (code !== 0) {
+                reject(new Error(stderr || 'VRP solver failed'));
+            } else {
+                try {
+                    resolve(JSON.parse(stdout));
+                } catch (e) {
+                    reject(new Error('Failed to parse VRP solver output'));
+                }
+            }
+        });
+
+        python.on('error', (err) => {
+            reject(err);
+        });
+    });
+}
+
+// Fallback greedy VRP solver
+function solveVRPGreedy(input) {
+    const { distance_matrix, demands, vehicle_capacities, num_vehicles, depot } = input;
+    const n = distance_matrix.length;
+    const routes = [];
+    const visited = new Set([depot]);
+
+    for (let v = 0; v < num_vehicles; v++) {
+        const capacity = vehicle_capacities[v] || vehicle_capacities[0];
+        let currentLoad = 0;
+        let currentNode = depot;
+        const route = [depot];
+
+        while (true) {
+            let bestNext = -1;
+            let bestDist = Infinity;
+
+            for (let j = 0; j < n; j++) {
+                if (!visited.has(j) &&
+                    currentLoad + (demands[j] || 1) <= capacity &&
+                    distance_matrix[currentNode][j] < bestDist) {
+                    bestDist = distance_matrix[currentNode][j];
+                    bestNext = j;
+                }
+            }
+
+            if (bestNext === -1) break;
+
+            route.push(bestNext);
+            visited.add(bestNext);
+            currentLoad += demands[bestNext] || 1;
+            currentNode = bestNext;
+        }
+
+        route.push(depot);
+        routes.push({
+            vehicle: v,
+            route,
+            load: currentLoad,
+            distance: calculateRouteDistance(route, distance_matrix)
+        });
+    }
+
+    const totalDistance = routes.reduce((sum, r) => sum + r.distance, 0);
+
+    return {
+        routes,
+        total_distance: Math.round(totalDistance * 10) / 10,
+        solver: 'greedy_fallback',
+        unvisited: Array.from({ length: n }, (_, i) => i).filter(i => !visited.has(i) && i !== depot)
+    };
+}
+
+function calculateRouteDistance(route, matrix) {
+    let distance = 0;
+    for (let i = 0; i < route.length - 1; i++) {
+        distance += matrix[route[i]][route[i + 1]];
+    }
+    return distance;
+}
+
+function createSimpleDistanceMatrix(locations) {
+    const n = locations.length;
+    const matrix = [];
+
+    for (let i = 0; i < n; i++) {
+        matrix[i] = [];
+        for (let j = 0; j < n; j++) {
+            if (i === j) {
+                matrix[i][j] = 0;
+            } else {
+                matrix[i][j] = calculateDistance(
+                    locations[i].lat, locations[i].lng,
+                    locations[j].lat, locations[j].lng
+                );
+            }
+        }
+    }
+
+    return matrix;
+}
+
+function calculateDistance(lat1, lon1, lat2, lon2) {
+    const R = 6371;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a =
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+        Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+}
+
+function calculateSavings(original, optimized) {
+    if (original.length <= 1) return 0;
+
+    let originalDist = 0;
+    let optimizedDist = 0;
+
+    for (let i = 0; i < original.length - 1; i++) {
+        originalDist += calculateDistance(
+            original[i].lat, original[i].lng,
+            original[i + 1].lat, original[i + 1].lng
+        );
+    }
+
+    for (let i = 0; i < optimized.length - 1; i++) {
+        if (optimized[i] && optimized[i + 1]) {
+            optimizedDist += calculateDistance(
+                optimized[i].lat, optimized[i].lng,
+                optimized[i + 1].lat, optimized[i + 1].lng
+            );
+        }
+    }
+
+    if (originalDist === 0) return 0;
+    return Math.round((1 - optimizedDist / originalDist) * 100);
+}
+
+export default router;

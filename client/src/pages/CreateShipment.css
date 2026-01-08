@@ -1,0 +1,408 @@
+.create-shipment {
+    max-width: 900px;
+    margin: 0 auto;
+}
+
+.page-header {
+    margin-bottom: var(--space-8);
+}
+
+.page-header h1 {
+    font-size: 2rem;
+    margin-bottom: var(--space-2);
+}
+
+.page-header p {
+    color: var(--dark-text-secondary);
+}
+
+/* Progress Steps */
+.progress-steps {
+    display: flex;
+    justify-content: center;
+    gap: var(--space-8);
+    margin-bottom: var(--space-10);
+    padding: var(--space-6);
+    background: var(--dark-surface);
+    border-radius: var(--radius-xl);
+    border: 1px solid var(--dark-border);
+}
+
+.progress-step {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-2);
+    cursor: pointer;
+    opacity: 0.4;
+    transition: all var(--transition-fast);
+}
+
+.progress-step.active {
+    opacity: 1;
+}
+
+.progress-step.current .step-circle {
+    background: var(--gradient-primary);
+    color: white;
+    box-shadow: 0 0 20px rgba(99, 102, 241, 0.4);
+}
+
+.step-circle {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: var(--dark-surface-elevated);
+    border: 2px solid var(--dark-border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    transition: all var(--transition-fast);
+}
+
+.progress-step.active .step-circle {
+    border-color: var(--primary-500);
+    color: var(--primary-400);
+}
+
+.step-label {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--dark-text-secondary);
+}
+
+.progress-step.current .step-label {
+    color: var(--dark-text);
+}
+
+/* Form Container */
+.form-container {
+    background: var(--dark-surface);
+    border: 1px solid var(--dark-border);
+    border-radius: var(--radius-xl);
+    overflow: hidden;
+}
+
+.form-main {
+    padding: var(--space-8);
+}
+
+.form-step h2 {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    font-size: 1.5rem;
+    margin-bottom: var(--space-2);
+}
+
+.form-step h2 svg {
+    color: var(--primary-400);
+}
+
+.step-description {
+    color: var(--dark-text-secondary);
+    margin-bottom: var(--space-8);
+}
+
+/* Location Inputs */
+.location-inputs {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-6);
+    margin-bottom: var(--space-6);
+}
+
+.address-input {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+.address-confirmed {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    background: rgba(16, 185, 129, 0.1);
+    border-radius: var(--radius-md);
+    font-size: 0.875rem;
+    color: var(--success-400);
+}
+
+.address-confirmed svg {
+    flex-shrink: 0;
+}
+
+/* Route Summary */
+.route-summary {
+    display: flex;
+    gap: var(--space-8);
+    margin-bottom: var(--space-6);
+    padding: var(--space-5);
+}
+
+.route-stat {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+}
+
+.route-stat-label {
+    font-size: 0.875rem;
+    color: var(--dark-text-secondary);
+}
+
+.route-stat-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--primary-400);
+}
+
+.map-preview {
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+}
+
+/* Cargo Type Grid */
+.cargo-type-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--space-3);
+}
+
+.cargo-type-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-4);
+    background: var(--dark-surface-elevated);
+    border: 2px solid var(--dark-border);
+    border-radius: var(--radius-lg);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.cargo-type-btn:hover {
+    border-color: var(--gray-600);
+}
+
+.cargo-type-btn.active {
+    border-color: var(--primary-500);
+    background: rgba(99, 102, 241, 0.1);
+}
+
+.cargo-icon {
+    font-size: 1.5rem;
+}
+
+.cargo-label {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--dark-text);
+}
+
+/* Vehicle Type Grid */
+.vehicle-type-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--space-3);
+}
+
+.vehicle-type-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-4);
+    background: var(--dark-surface-elevated);
+    border: 2px solid var(--dark-border);
+    border-radius: var(--radius-lg);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    text-align: center;
+}
+
+.vehicle-type-btn:hover {
+    border-color: var(--gray-600);
+}
+
+.vehicle-type-btn.active {
+    border-color: var(--primary-500);
+    background: rgba(99, 102, 241, 0.1);
+}
+
+.vehicle-type-btn svg {
+    color: var(--primary-400);
+}
+
+.vehicle-label {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--dark-text);
+}
+
+.vehicle-desc {
+    font-size: 0.75rem;
+    color: var(--dark-text-secondary);
+}
+
+/* Input Row */
+.input-row {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--space-4);
+}
+
+/* Textarea */
+.textarea {
+    resize: vertical;
+    min-height: 80px;
+}
+
+/* Info Box */
+.info-box {
+    display: flex;
+    gap: var(--space-4);
+    padding: var(--space-5);
+    background: rgba(99, 102, 241, 0.1);
+    border: 1px solid rgba(99, 102, 241, 0.3);
+    border-radius: var(--radius-lg);
+    margin-top: var(--space-6);
+}
+
+.info-box svg {
+    color: var(--primary-400);
+    flex-shrink: 0;
+    margin-top: 2px;
+}
+
+.info-box p {
+    font-size: 0.9375rem;
+}
+
+.info-box p:first-child {
+    color: var(--dark-text);
+    margin-bottom: var(--space-1);
+}
+
+/* Review Sections */
+.review-sections {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-6);
+    margin-bottom: var(--space-8);
+}
+
+.review-section {
+    padding: var(--space-5);
+    background: var(--dark-surface-elevated);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--dark-border);
+}
+
+.review-section h3 {
+    font-size: 1rem;
+    margin-bottom: var(--space-4);
+    padding-bottom: var(--space-3);
+    border-bottom: 1px solid var(--dark-border);
+}
+
+.review-item {
+    display: flex;
+    justify-content: space-between;
+    padding: var(--space-2) 0;
+}
+
+.review-label {
+    color: var(--dark-text-secondary);
+}
+
+.review-value {
+    font-weight: 500;
+    color: var(--dark-text);
+}
+
+/* Price Estimate */
+.price-estimate {
+    text-align: center;
+    padding: var(--space-8);
+}
+
+.price-header {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    font-size: 1rem;
+    color: var(--dark-text-secondary);
+    margin-bottom: var(--space-4);
+}
+
+.price-header svg {
+    color: var(--primary-400);
+}
+
+.price-range {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-3);
+    margin-bottom: var(--space-3);
+}
+
+.price-min,
+.price-max {
+    font-size: 2rem;
+    font-weight: 800;
+    color: var(--primary-400);
+}
+
+.price-separator {
+    color: var(--dark-text-secondary);
+}
+
+.price-note {
+    font-size: 0.875rem;
+    color: var(--dark-text-secondary);
+}
+
+/* Form Navigation */
+.form-navigation {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-4);
+    padding: var(--space-6);
+    background: var(--dark-surface-elevated);
+    border-top: 1px solid var(--dark-border);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .progress-steps {
+        gap: var(--space-4);
+        padding: var(--space-4);
+    }
+
+    .step-label {
+        display: none;
+    }
+
+    .cargo-type-grid,
+    .vehicle-type-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .input-row {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 480px) {
+
+    .cargo-type-grid,
+    .vehicle-type-grid {
+        grid-template-columns: 1fr;
+    }
+}
