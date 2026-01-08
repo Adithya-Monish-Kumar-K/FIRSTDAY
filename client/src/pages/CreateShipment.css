@@ -134,6 +134,99 @@
     flex-shrink: 0;
 }
 
+.address-confirmed .coords-display {
+    margin-left: auto;
+    font-size: 0.75rem;
+    color: var(--dark-text-secondary);
+    background: rgba(255, 255, 255, 0.1);
+    padding: 2px 8px;
+    border-radius: var(--radius-sm);
+}
+
+/* Map Selection Mode */
+.map-select-mode {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(217, 70, 239, 0.2));
+    border: 1px solid rgba(99, 102, 241, 0.5);
+    border-radius: var(--radius-lg);
+    margin-bottom: var(--space-4);
+    animation: pulse-border 2s ease-in-out infinite;
+}
+
+.map-select-mode svg {
+    color: var(--primary-400);
+    flex-shrink: 0;
+}
+
+.map-select-mode span {
+    flex: 1;
+    font-weight: 500;
+}
+
+.map-select-mode .btn {
+    padding: var(--space-1) var(--space-3);
+    font-size: 0.75rem;
+}
+
+@keyframes pulse-border {
+    0%, 100% {
+        border-color: rgba(99, 102, 241, 0.5);
+    }
+    50% {
+        border-color: rgba(217, 70, 239, 0.8);
+    }
+}
+
+/* Address Input with Button */
+.address-input {
+    display: flex;
+    gap: var(--space-2);
+    align-items: flex-start;
+}
+
+.address-input .input {
+    flex: 1;
+}
+
+.btn-icon.btn-select-map {
+    padding: var(--space-3);
+    background: var(--dark-surface-elevated);
+    border: 2px solid var(--dark-border);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--dark-text-secondary);
+}
+
+.btn-icon.btn-select-map:hover {
+    border-color: var(--primary-500);
+    color: var(--primary-400);
+}
+
+.btn-icon.btn-select-map.active {
+    background: var(--gradient-primary);
+    border-color: transparent;
+    color: white;
+}
+
+/* Map Preview Selection Mode */
+.map-preview {
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    transition: box-shadow var(--transition-fast);
+}
+
+.map-preview.selecting {
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.5);
+    cursor: crosshair;
+}
+
 /* Route Summary */
 .route-summary {
     display: flex;
@@ -157,11 +250,6 @@
     font-size: 1.5rem;
     font-weight: 700;
     color: var(--primary-400);
-}
-
-.map-preview {
-    border-radius: var(--radius-lg);
-    overflow: hidden;
 }
 
 /* Cargo Type Grid */

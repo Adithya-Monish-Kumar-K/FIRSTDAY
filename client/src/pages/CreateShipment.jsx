@@ -49,6 +49,46 @@ export default function CreateShipment() {
     const [priceEstimate, setPriceEstimate] = useState(null);
     const [originAddress, setOriginAddress] = useState('');
     const [destAddress, setDestAddress] = useState('');
+    const [selectingLocation, setSelectingLocation] = useState(null); // 'origin' or 'destination'
+
+    // Handle map click to set location
+    const handleMapClick = async (coords) => {
+        if (!selectingLocation) return;
+        
+        let address = `${coords.lat.toFixed(6)}, ${coords.lng.toFixed(6)}`;
+        
+        try {
+            // Reverse geocode to get address
+            const response = await routesApi.reverseGeocode(coords.lat, coords.lng);
+            address = response.data.results?.[0]?.formatted_address || address;
+        } catch (error) {
+            console.error('Reverse geocoding failed:', error);
+        }
+        
+        const location = {
+            lat: coords.lat,
+            lng: coords.lng,
+            address: address
+        };
+
+        if (selectingLocation === 'origin') {
+            setFormData(prev => ({ ...prev, origin: location }));
+            setOriginAddress(address);
+            // Calculate route if destination exists
+            if (formData.destination) {
+                calculateRoute(location, formData.destination);
+            }
+        } else {
+            setFormData(prev => ({ ...prev, destination: location }));
+            setDestAddress(address);
+            // Calculate route if origin exists
+            if (formData.origin) {
+                calculateRoute(formData.origin, location);
+            }
+        }
+        
+        setSelectingLocation(null);
+    };
 
     const handleAddressSearch = async (type) => {
         const address = type === 'origin' ? originAddress : destAddress;
@@ -84,10 +124,41 @@ export default function CreateShipment() {
     const calculateRoute = async (origin, destination) => {
         try {
             const response = await routesApi.getETA(origin, destination);
-            setRouteInfo(response.data);
+            if (response.data && response.data.distance_km) {
+                setRouteInfo(response.data);
+            } else {
+                // Calculate fallback distance using Haversine formula
+                const fallbackDistance = calculateHaversineDistance(origin, destination);
+                setRouteInfo({
+                    distance_km: fallbackDistance,
+                    duration_hours: fallbackDistance / 50, // Assume 50 km/h average
+                    estimated_arrival: null
+                });
+            }
         } catch (error) {
             console.error('Route calculation failed:', error);
+            // Calculate fallback distance using Haversine formula
+            const fallbackDistance = calculateHaversineDistance(origin, destination);
+            setRouteInfo({
+                distance_km: fallbackDistance,
+                duration_hours: fallbackDistance / 50, // Assume 50 km/h average
+                estimated_arrival: null
+            });
+            addNotification({ type: 'warning', message: 'Using estimated distance (API unavailable)' });
         }
+    };
+
+    // Haversine formula to calculate distance between two coordinates
+    const calculateHaversineDistance = (point1, point2) => {
+        const R = 6371; // Earth's radius in km
+        const dLat = (point2.lat - point1.lat) * Math.PI / 180;
+        const dLng = (point2.lng - point1.lng) * Math.PI / 180;
+        const a = 
+            Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(point1.lat * Math.PI / 180) * Math.cos(point2.lat * Math.PI / 180) *
+            Math.sin(dLng / 2) * Math.sin(dLng / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return Math.round(R * c * 1.3); // Multiply by 1.3 to account for road distance vs straight line
     };
 
     const calculatePrice = async () => {
@@ -108,11 +179,28 @@ export default function CreateShipment() {
     };
 
     const handleSubmit = async () => {
-        const result = await createShipment({
-            ...formData,
+        // Transform data to match backend expected format
+        const shipmentPayload = {
+            cargo_type: formData.cargo_type,
+            weight_kg: parseFloat(formData.weight) * 1000, // Convert tons to kg
+            quantity: 1,
+            special_requirements: formData.special_requirements || [],
+            origin_address: formData.origin.address,
+            origin_lat: formData.origin.lat,
+            origin_lng: formData.origin.lng,
+            dest_address: formData.destination.address,
+            dest_lat: formData.destination.lat,
+            dest_lng: formData.destination.lng,
+            pickup_deadline: formData.pickup_date ? new Date(formData.pickup_date).toISOString() : null,
+            delivery_deadline: null,
+            total_price_estimate: priceEstimate?.suggested_price?.recommended || null,
+            vehicle_type_required: formData.vehicle_type_required,
+            description: formData.description || null,
             distance_km: routeInfo?.distance_km,
             estimated_duration_hours: routeInfo?.duration_hours
-        });
+        };
+
+        const result = await createShipment(shipmentPayload);
 
         if (result.success) {
             addNotification({ type: 'success', message: 'Shipment created successfully!' });
@@ -165,7 +253,22 @@ export default function CreateShipment() {
                     {step === 1 && (
                         <div className="form-step animate-fadeIn">
                             <h2><MapPin size={24} /> Route Details</h2>
-                            <p className="step-description">Enter pickup and delivery locations</p>
+                            <p className="step-description">Enter pickup and delivery locations or click on the map</p>
+
+                            {/* Map selection mode indicator */}
+                            {selectingLocation && (
+                                <div className="map-select-mode">
+                                    <AlertCircle size={18} />
+                                    <span>Click on the map to set {selectingLocation === 'origin' ? 'Pickup' : 'Delivery'} location</span>
+                                    <button 
+                                        type="button" 
+                                        className="btn btn-sm btn-secondary"
+                                        onClick={() => setSelectingLocation(null)}
+                                    >
+                                        Cancel
+                                    </button>
+                                </div>
+                            )}
 
                             <div className="location-inputs">
                                 <div className="input-group">
@@ -179,13 +282,22 @@ export default function CreateShipment() {
                                             onChange={(e) => setOriginAddress(e.target.value)}
                                             onBlur={() => handleAddressSearch('origin')}
                                         />
-                                        {formData.origin && (
-                                            <div className="address-confirmed">
-                                                <CheckCircle size={16} />
-                                                <span>{formData.origin.address}</span>
-                                            </div>
-                                        )}
+                                        <button
+                                            type="button"
+                                            className={`btn btn-icon btn-select-map ${selectingLocation === 'origin' ? 'active' : ''}`}
+                                            onClick={() => setSelectingLocation(selectingLocation === 'origin' ? null : 'origin')}
+                                            title="Select on map"
+                                        >
+                                            <MapPin size={18} />
+                                        </button>
                                     </div>
+                                    {formData.origin && (
+                                        <div className="address-confirmed">
+                                            <CheckCircle size={16} />
+                                            <span>{formData.origin.address}</span>
+                                            <span className="coords-display">({formData.origin.lat.toFixed(4)}, {formData.origin.lng.toFixed(4)})</span>
+                                        </div>
+                                    )}
                                 </div>
 
                                 <div className="input-group">
@@ -199,13 +311,22 @@ export default function CreateShipment() {
                                             onChange={(e) => setDestAddress(e.target.value)}
                                             onBlur={() => handleAddressSearch('destination')}
                                         />
-                                        {formData.destination && (
-                                            <div className="address-confirmed">
-                                                <CheckCircle size={16} />
-                                                <span>{formData.destination.address}</span>
-                                            </div>
-                                        )}
+                                        <button
+                                            type="button"
+                                            className={`btn btn-icon btn-select-map ${selectingLocation === 'destination' ? 'active' : ''}`}
+                                            onClick={() => setSelectingLocation(selectingLocation === 'destination' ? null : 'destination')}
+                                            title="Select on map"
+                                        >
+                                            <MapPin size={18} />
+                                        </button>
                                     </div>
+                                    {formData.destination && (
+                                        <div className="address-confirmed">
+                                            <CheckCircle size={16} />
+                                            <span>{formData.destination.address}</span>
+                                            <span className="coords-display">({formData.destination.lat.toFixed(4)}, {formData.destination.lng.toFixed(4)})</span>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
 
@@ -222,11 +343,12 @@ export default function CreateShipment() {
                                 </div>
                             )}
 
-                            <div className="map-preview">
+                            <div className={`map-preview ${selectingLocation ? 'selecting' : ''}`}>
                                 <RouteMap
                                     height="350px"
                                     origin={formData.origin}
                                     destination={formData.destination}
+                                    onMapClick={handleMapClick}
                                 />
                             </div>
                         </div>
