@@ -462,4 +462,118 @@ function calculateSavings(original, optimized) {
     return Math.round((1 - optimizedDist / originalDist) * 100);
 }
 
+// ============================================================
+// Multi-Transporter Chain Optimization (calls Python FastAPI)
+// ============================================================
+
+/**
+ * Chain optimization endpoint - proxies to Python optimizer
+ * This finds the best multi-transporter route for a shipment
+ * 
+ * POST /api/optimize/chain
+ * Body: {
+ *   origin: { lat, lng },
+ *   destination: { lat, lng },
+ *   product_type: 'medicine' | 'furniture' | 'electronics' | 'perishable' | 'other',
+ *   urgency_multiplier: 1-3 (default 1),
+ *   shipments: [{ id, weight_kg }]
+ * }
+ */
+router.post('/chain', verifyToken, async (req, res) => {
+    try {
+        const {
+            origin,
+            destination,
+            product_type,
+            urgency_multiplier = 1,
+            shipments
+        } = req.body;
+
+        // Validation
+        if (!origin || !destination) {
+            return res.status(400).json({ error: 'Origin and destination are required' });
+        }
+        if (!shipments || !shipments.length) {
+            return res.status(400).json({ error: 'At least one shipment is required' });
+        }
+
+        // Call Python optimizer service
+        try {
+            const response = await fetch(`${OPTIMIZER_URL}/optimize`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    origin,
+                    destination,
+                    product_type: product_type || 'other',
+                    urgency_multiplier,
+                    shipments
+                })
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                return res.status(response.status).json(error);
+            }
+
+            const optimizedRoutes = await response.json();
+            res.json({
+                success: true,
+                optimizer: 'fastapi',
+                routes: optimizedRoutes
+            });
+        } catch (fetchError) {
+            console.error('Optimizer service not available:', fetchError.message);
+            
+            // Fallback: Return mock chain result for testing
+            res.json({
+                success: true,
+                optimizer: 'fallback',
+                message: 'Python optimizer not available, using mock response',
+                routes: [{
+                    total_cost: 0,
+                    total_eta_hours: 0,
+                    legs: [{
+                        transporter_id: 'mock-transporter',
+                        from_location: origin,
+                        to_location: destination,
+                        distance_km: calculateDistance(
+                            origin.lat, origin.lng,
+                            destination.lat, destination.lng
+                        ),
+                        eta_hours: 0,
+                        cost: 0,
+                        handoff_signature: 'mock-signature'
+                    }]
+                }]
+            });
+        }
+    } catch (error) {
+        console.error('Chain optimization error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * Health check for optimizer service
+ */
+router.get('/health', async (req, res) => {
+    try {
+        const response = await fetch(`${OPTIMIZER_URL}/docs`, { method: 'GET' });
+        res.json({
+            server: 'healthy',
+            optimizer: response.ok ? 'healthy' : 'unavailable',
+            optimizer_url: OPTIMIZER_URL
+        });
+    } catch (error) {
+        res.json({
+            server: 'healthy',
+            optimizer: 'unavailable',
+            optimizer_url: OPTIMIZER_URL,
+            error: error.message
+        });
+    }
+});
+
 export default router;
+

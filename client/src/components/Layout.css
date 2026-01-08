@@ -119,6 +119,24 @@
     display: none;
 }
 
+.nav-arrow {
+    margin-left: auto;
+    opacity: 0;
+    transition: all var(--transition-fast);
+}
+
+.nav-item:hover .nav-arrow {
+    opacity: 0.5;
+}
+
+.nav-item.active .nav-arrow {
+    opacity: 1;
+}
+
+.sidebar.closed .nav-arrow {
+    display: none;
+}
+
 .sidebar-footer {
     padding: var(--space-4);
     border-top: 1px solid var(--dark-border);

@@ -1,8 +1,9 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import { useAuthStore, useNotificationStore } from '../store';
 import {
-    Truck, Package, Map, BarChart3, User, LogOut, Menu, X,
-    Bell, Settings, Home, Route, DollarSign, Star, RefreshCw
+    Truck, Package, Map, BarChart3, LogOut, Menu, X,
+    Bell, Settings, Home, Route, DollarSign, Star, RefreshCw,
+    Zap, Users, Shield, ChevronRight
 } from 'lucide-react';
 import { useState } from 'react';
 import './Layout.css';
@@ -19,23 +20,67 @@ export default function Layout() {
         navigate('/login');
     };
 
-    const navItems = user?.role === 'transporter' ? [
-        { to: '/dashboard', icon: Home, label: 'Dashboard' },
-        { to: '/available-shipments', icon: Package, label: 'Available Loads' },
-        { to: '/my-shipments', icon: Truck, label: 'My Shipments' },
-        { to: '/vehicles', icon: Truck, label: 'My Vehicles' },
-        { to: '/routes', icon: Route, label: 'Route Planner' },
-        { to: '/return-trips', icon: RefreshCw, label: 'Return Trips' },
-        { to: '/earnings', icon: DollarSign, label: 'Earnings' },
-        { to: '/ratings', icon: Star, label: 'My Ratings' },
-    ] : [
-        { to: '/dashboard', icon: Home, label: 'Dashboard' },
-        { to: '/create-shipment', icon: Package, label: 'Create Shipment' },
-        { to: '/my-shipments', icon: Truck, label: 'My Shipments' },
-        { to: '/tracking', icon: Map, label: 'Track Shipments' },
-        { to: '/analytics', icon: BarChart3, label: 'Analytics' },
-        { to: '/pricing', icon: DollarSign, label: 'Price Calculator' },
-    ];
+    // Role-based navigation
+    const getNavItems = () => {
+        const commonItems = [
+            { to: '/dashboard', icon: Home, label: 'Dashboard' },
+        ];
+
+        if (user?.role === 'admin') {
+            return [
+                ...commonItems,
+                { to: '/admin', icon: Shield, label: 'Admin Panel' },
+                { to: '/admin/users', icon: Users, label: 'Users' },
+                { to: '/admin/shipments', icon: Package, label: 'All Shipments' },
+                { to: '/optimizer', icon: Zap, label: 'Optimizer' },
+                { to: '/vehicles', icon: Truck, label: 'Vehicles' },
+                { to: '/tracking', icon: Map, label: 'Tracking' },
+                { to: '/pricing', icon: DollarSign, label: 'Pricing' },
+            ];
+        }
+
+        if (user?.role === 'transporter') {
+            return [
+                ...commonItems,
+                { to: '/available-shipments', icon: Package, label: 'Available Loads' },
+                { to: '/my-shipments', icon: Truck, label: 'My Shipments' },
+                { to: '/vehicles', icon: Truck, label: 'My Vehicles' },
+                { to: '/routes', icon: Route, label: 'Route Planner' },
+                { to: '/optimizer', icon: Zap, label: 'Optimizer' },
+                { to: '/return-trips', icon: RefreshCw, label: 'Return Trips' },
+                { to: '/earnings', icon: DollarSign, label: 'Earnings' },
+                { to: '/ratings', icon: Star, label: 'My Ratings' },
+            ];
+        }
+
+        // Shipper
+        return [
+            ...commonItems,
+            { to: '/create-shipment', icon: Package, label: 'Create Shipment' },
+            { to: '/my-shipments', icon: Truck, label: 'My Shipments' },
+            { to: '/tracking', icon: Map, label: 'Track Shipments' },
+            { to: '/optimizer', icon: Zap, label: 'Optimizer' },
+            { to: '/analytics', icon: BarChart3, label: 'Analytics' },
+            { to: '/pricing', icon: DollarSign, label: 'Price Calculator' },
+        ];
+    };
+
+    const navItems = getNavItems();
+
+    const getRoleBadge = () => {
+        switch (user?.role) {
+            case 'admin':
+                return { color: '#ef4444', label: 'Admin' };
+            case 'transporter':
+                return { color: '#f59e0b', label: 'Transporter' };
+            case 'shipper':
+                return { color: '#3b82f6', label: 'Shipper' };
+            default:
+                return { color: '#6b7280', label: 'Guest' };
+        }
+    };
+
+    const roleBadge = getRoleBadge();
 
     return (
         <div className="layout">
@@ -46,7 +91,7 @@ export default function Layout() {
                         <div className="logo-icon">
                             <Truck size={24} />
                         </div>
-                        {sidebarOpen && <span className="logo-text">LogiFlow</span>}
+                        {sidebarOpen && <span className="logo-text">ChainFreight</span>}
                     </div>
                     <button
                         className="sidebar-toggle"
@@ -65,6 +110,7 @@ export default function Layout() {
                         >
                             <Icon size={20} />
                             {sidebarOpen && <span>{label}</span>}
+                            {sidebarOpen && <ChevronRight size={16} className="nav-arrow" />}
                         </NavLink>
                     ))}
                 </nav>
@@ -128,12 +174,14 @@ export default function Layout() {
 
                         {/* User Menu */}
                         <div className="user-menu">
-                            <div className="avatar">
+                            <div className="avatar" style={{ background: roleBadge.color }}>
                                 {user?.name?.charAt(0).toUpperCase() || 'U'}
                             </div>
                             <div className="user-info">
-                                <span className="user-name">{user?.name || 'User'}</span>
-                                <span className="user-role">{user?.role || 'Guest'}</span>
+                                <span className="user-name">{user?.name || user?.business_name || 'User'}</span>
+                                <span className="user-role" style={{ color: roleBadge.color }}>
+                                    {roleBadge.label}
+                                </span>
                             </div>
                         </div>
                     </div>

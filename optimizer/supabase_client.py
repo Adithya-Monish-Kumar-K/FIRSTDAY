@@ -41,12 +41,13 @@ def fetch_transporters(
     client = get_supabase_client()
     
     # Fetch available vehicles with sufficient capacity
+    # Convert weight_kg to int to match database column type
     vehicles_response = client.table("vehicles").select(
         "id, transporter_id, plate_number, vehicle_type, max_capacity_kg, "
         "current_load_kg, base_rate_per_km, fuel_efficiency_km_l, "
         "current_location_lat, current_location_lng, home_base_location, "
         "is_available, capabilities"
-    ).eq("is_available", True).gte("max_capacity_kg", weight_kg).execute()
+    ).eq("is_available", True).gte("max_capacity_kg", int(weight_kg)).execute()
     
     vehicles = vehicles_response.data if vehicles_response.data else []
     

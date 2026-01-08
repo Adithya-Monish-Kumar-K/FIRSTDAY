@@ -162,9 +162,11 @@ app.get('/api', (req, res) => {
                 'DELETE /api/return-trips/:id': 'Delete return trip'
             },
             optimize: {
-                'POST /api/optimize/vrp': 'Solve VRP problem',
+                'POST /api/optimize/vrp': 'Solve VRP problem (local)',
                 'POST /api/optimize/optimize-order': 'Optimize delivery order',
-                'POST /api/optimize/match-routes': 'Match compatible routes'
+                'POST /api/optimize/match-routes': 'Match compatible routes',
+                'POST /api/optimize/chain': '🔥 Multi-transporter chain optimization (Python OR-Tools)',
+                'GET /api/optimize/health': 'Check optimizer service health'
             }
         },
         schemas: {

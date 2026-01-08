@@ -108,6 +108,10 @@
   --transition-base: 200ms ease;
   --transition-slow: 300ms ease;
   --transition-slower: 500ms ease;
+
+  /* Text color aliases for components */
+  --text-primary: var(--dark-text);
+  --text-secondary: var(--dark-text-secondary);
 }
 
 * {

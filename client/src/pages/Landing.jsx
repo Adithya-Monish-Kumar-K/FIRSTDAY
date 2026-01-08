@@ -56,7 +56,7 @@ export default function Landing() {
                             <div className="logo-icon">
                                 <Truck size={28} />
                             </div>
-                            <span className="logo-text">LogiFlow</span>
+                            <span className="logo-text">ChainFreight</span>
                         </div>
                         <nav className="header-nav">
                             <a href="#features">Features</a>
@@ -140,7 +140,7 @@ export default function Landing() {
                 <div className="container">
                     <div className="section-header">
                         <span className="section-badge">Process</span>
-                        <h2>How LogiFlow Works</h2>
+                        <h2>How ChainFreight Works</h2>
                         <p>Simple steps to get your cargo moving</p>
                     </div>
                     <div className="steps">
@@ -255,7 +255,7 @@ export default function Landing() {
                 <div className="container">
                     <div className="cta-content glass">
                         <h2>Ready to Transform Your Logistics?</h2>
-                        <p>Join thousands of businesses and transporters already using LogiFlow</p>
+                        <p>Join thousands of businesses and transporters already using ChainFreight</p>
                         <div className="cta-actions">
                             <Link to="/register" className="btn btn-primary btn-lg">
                                 Get Started Free
@@ -275,7 +275,7 @@ export default function Landing() {
                                 <div className="logo-icon">
                                     <Truck size={24} />
                                 </div>
-                                <span className="logo-text">LogiFlow</span>
+                                <span className="logo-text">ChainFreight</span>
                             </div>
                             <p>The intelligent logistics platform for modern freight transportation.</p>
                         </div>
@@ -300,7 +300,7 @@ export default function Landing() {
                         </div>
                     </div>
                     <div className="footer-bottom">
-                        <p>&copy; 2026 LogiFlow. All rights reserved.</p>
+                        <p>&copy; 2026 ChainFreight. All rights reserved.</p>
                     </div>
                 </div>
             </footer>

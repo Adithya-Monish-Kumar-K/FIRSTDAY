@@ -1,4 +1,10 @@
 from fastapi import FastAPI, HTTPException
+from dotenv import load_dotenv
+import os
+
+# Load environment variables from .env file
+load_dotenv()
+
 from models import ShipmentRequest, OptimizedRoute, RouteLeg
 from chaining import build_chains
 from solver_vrp import solve_vrp
@@ -7,7 +13,15 @@ from supabase_client import fetch_transporters
 from geopy.distance import geodesic
 from decimal import Decimal
 
-app = FastAPI(title="LogiTech Optimizer")
+app = FastAPI(title="ChainFreight Optimizer")
+
+@app.get("/health")
+def health():
+    """Health check endpoint."""
+    return {
+        "status": "healthy",
+        "supabase_configured": bool(os.environ.get("SUPABASE_URL"))
+    }
 
 @app.post("/optimize", response_model=list[OptimizedRoute])
 def optimize(req: ShipmentRequest):

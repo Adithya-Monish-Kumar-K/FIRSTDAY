@@ -125,4 +125,45 @@ export const optimizeApi = {
         }),
     matchRoutes: (shipments, availableRoutes) =>
         api.post('/optimize/match-routes', { shipments, available_routes: availableRoutes }),
+    
+    // Chain optimization - multi-transporter routing
+    chainOptimize: (origin, destination, productType, shipments, urgencyMultiplier = 1) =>
+        api.post('/optimize/chain', {
+            origin,
+            destination,
+            product_type: productType,
+            urgency_multiplier: urgencyMultiplier,
+            shipments
+        }),
+    
+    // Health check
+    health: () => api.get('/optimize/health'),
 };
+
+// Notifications API
+export const notificationsApi = {
+    getAll: () => api.get('/notifications'),
+    getUnreadCount: () => api.get('/notifications/unread-count'),
+    markAsRead: (id) => api.put(`/notifications/${id}/read`),
+    markAllAsRead: () => api.put('/notifications/read-all'),
+    delete: (id) => api.delete(`/notifications/${id}`),
+};
+
+// Route Legs API
+export const routeLegsApi = {
+    getForShipment: (shipmentId) => api.get(`/route-legs/shipment/${shipmentId}`),
+    getAvailable: () => api.get('/route-legs/available'),
+    getMyLegs: () => api.get('/route-legs/my-legs'),
+    create: (data) => api.post('/route-legs', data),
+    accept: (id) => api.post(`/route-legs/${id}/accept`),
+    start: (id) => api.post(`/route-legs/${id}/start`),
+    complete: (id, data) => api.post(`/route-legs/${id}/complete`, data),
+};
+
+// Admin API
+export const adminApi = {
+    getAllUsers: () => api.get('/auth/users'),
+    getAllShipments: () => api.get('/shipments/all'),
+    getStats: () => api.get('/admin/stats'),
+};
+

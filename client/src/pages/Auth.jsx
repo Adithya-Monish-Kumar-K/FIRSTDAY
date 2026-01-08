@@ -29,7 +29,7 @@ export function Login() {
                             <div className="logo-icon">
                                 <Truck size={28} />
                             </div>
-                            <span className="logo-text">LogiFlow</span>
+                            <span className="logo-text">ChainFreight</span>
                         </Link>
                     </div>
                     <div className="auth-hero">
@@ -198,11 +198,11 @@ export function Register() {
                             <div className="logo-icon">
                                 <Truck size={28} />
                             </div>
-                            <span className="logo-text">LogiFlow</span>
+                            <span className="logo-text">ChainFreight</span>
                         </Link>
                     </div>
                     <div className="auth-hero">
-                        <h1>Join LogiFlow</h1>
+                        <h1>Join ChainFreight</h1>
                         <p>Create an account to start shipping or become a transporter</p>
                     </div>
                     <div className="auth-visual">
