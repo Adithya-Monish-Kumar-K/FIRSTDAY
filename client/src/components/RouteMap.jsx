@@ -1,4 +1,4 @@
-import { GoogleMap, LoadScript, Marker, Polyline, InfoWindow } from '@react-google-maps/api';
+import { GoogleMap, LoadScript, Marker, Polyline, InfoWindow, DirectionsRenderer } from '@react-google-maps/api';
 import { useState, useCallback, useEffect } from 'react';
 
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
@@ -58,6 +58,7 @@ export default function RouteMap({
     waypoints = [],
     checkpoints = [],
     routes = [],
+    directions = null,
     onMapClick,
     showMarkers = true,
     fitBounds = true,
@@ -222,8 +223,23 @@ export default function RouteMap({
                         )
                     ))}
 
-                    {/* Route Polylines */}
-                    {routes.map((route, index) => (
+                    {/* Directions Renderer for client-side routes */}
+                    {directions && (
+                        <DirectionsRenderer
+                            directions={directions}
+                            options={{
+                                suppressMarkers: !showMarkers,
+                                polylineOptions: {
+                                    strokeColor: '#6366f1',
+                                    strokeOpacity: 0.8,
+                                    strokeWeight: 5,
+                                },
+                            }}
+                        />
+                    )}
+
+                    {/* Backend calculated routes (legacy/alternative) */}
+                    {!directions && routes.map((route, index) => (
                         <Polyline
                             key={`route-${index}`}
                             path={route.path}
@@ -236,7 +252,7 @@ export default function RouteMap({
                     ))}
 
                     {/* Simple route line if no routes but origin/destination exist */}
-                    {routes.length === 0 && origin && destination && (
+                    {!directions && routes.length === 0 && origin && destination && (
                         <Polyline
                             path={[origin, ...waypoints, destination]}
                             options={{
