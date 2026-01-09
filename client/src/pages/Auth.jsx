@@ -161,18 +161,70 @@ export function Register() {
         role: defaultRole
     });
     const [showPassword, setShowPassword] = useState(false);
+    const [validationErrors, setValidationErrors] = useState({});
     const { register, isLoading, error, clearError } = useAuthStore();
     const navigate = useNavigate();
 
+    // Validation helpers
+    const validateEmail = (email) => {
+        // RFC 5322 compliant email regex - prevents emails starting with special chars
+        const emailRegex = /^[a-zA-Z0-9](?:[a-zA-Z0-9._%+-]*[a-zA-Z0-9])?@[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?\.[a-zA-Z]{2,}$/;
+        return emailRegex.test(email);
+    };
+
+    const validatePhone = (phone) => {
+        // Remove all non-digit characters and check for minimum 10 digits
+        const digitsOnly = phone.replace(/\D/g, '');
+        return digitsOnly.length >= 10;
+    };
+
     const handleChange = (e) => {
-        setFormData({ ...formData, [e.target.name]: e.target.value });
+        const { name, value } = e.target;
+        setFormData({ ...formData, [name]: value });
+
+        // Real-time validation
+        const errors = { ...validationErrors };
+        
+        if (name === 'email') {
+            if (value && !validateEmail(value)) {
+                errors.email = 'Please enter a valid email address';
+            } else {
+                delete errors.email;
+            }
+        }
+        
+        if (name === 'phone') {
+            if (value && !validatePhone(value)) {
+                errors.phone = 'Phone number must have at least 10 digits';
+            } else {
+                delete errors.phone;
+            }
+        }
+        
+        setValidationErrors(errors);
     };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
         clearError();
 
+        // Final validation before submit
+        const errors = {};
+        
+        if (!validateEmail(formData.email)) {
+            errors.email = 'Please enter a valid email address';
+        }
+        
+        if (formData.phone && !validatePhone(formData.phone)) {
+            errors.phone = 'Phone number must have at least 10 digits';
+        }
+        
         if (formData.password !== formData.confirmPassword) {
+            errors.confirmPassword = 'Passwords do not match';
+        }
+        
+        if (Object.keys(errors).length > 0) {
+            setValidationErrors(errors);
             return;
         }
 
@@ -287,8 +339,11 @@ export function Register() {
                                         value={formData.email}
                                         onChange={handleChange}
                                         required
+                                        pattern="^[a-zA-Z0-9](?:[a-zA-Z0-9._%+-]*[a-zA-Z0-9])?@[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?\.[a-zA-Z]{2,}$"
+                                        title="Please enter a valid email address (cannot start with special characters)"
                                     />
                                 </div>
+                                {validationErrors.email && <p className="error-text">{validationErrors.email}</p>}
                             </div>
 
                             <div className="input-group">
@@ -303,8 +358,12 @@ export function Register() {
                                         placeholder="+91 98765 43210"
                                         value={formData.phone}
                                         onChange={handleChange}
+                                        minLength={10}
+                                        pattern=".*[0-9].*[0-9].*[0-9].*[0-9].*[0-9].*[0-9].*[0-9].*[0-9].*[0-9].*[0-9].*"
+                                        title="Phone number must contain at least 10 digits"
                                     />
                                 </div>
+                                {validationErrors.phone && <p className="error-text">{validationErrors.phone}</p>}
                             </div>
 
                             <div className="input-row">

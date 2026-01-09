@@ -56,6 +56,20 @@ router.post('/register', async (req, res) => {
             return res.status(400).json({ error: `Invalid role. Must be one of: ${USER_ROLES.join(', ')}` });
         }
 
+        // Email validation - must start with alphanumeric, contain @, and valid domain
+        const emailRegex = /^[a-zA-Z0-9](?:[a-zA-Z0-9._%+-]*[a-zA-Z0-9])?@[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?\.[a-zA-Z]{2,}$/;
+        if (!emailRegex.test(email)) {
+            return res.status(400).json({ error: 'Invalid email format. Email must start with a letter or number.' });
+        }
+
+        // Phone validation - must have at least 10 digits (if provided)
+        if (phone) {
+            const digitsOnly = phone.replace(/\D/g, '');
+            if (digitsOnly.length < 10) {
+                return res.status(400).json({ error: 'Phone number must contain at least 10 digits.' });
+            }
+        }
+
         if (supabase) {
             // Create user with Supabase Auth
             const { data: authData, error: authError } = await supabase.auth.signUp({
