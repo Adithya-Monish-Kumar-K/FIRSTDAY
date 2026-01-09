@@ -81,18 +81,9 @@ Open marketplace where transporters can:
 ## 🏗 System Architecture
 
 The project follows a **Microservice-style Monorepo** architecture orchestrated via Docker for seamless deployment.
+<img width="931" height="564" alt="Screenshot 2026-01-08 at 11 04 21 PM" src="https://github.com/user-attachments/assets/e5349b5f-a643-4792-9bfc-47f25e3a0a1c" />
 
-```mermaid
-graph TD
-    User[Client - React] -->|HTTP/REST| Server[Node.js API Gateway]
-    Server -->|Read/Write| DB[(Supabase PostgreSQL)]
-    Server -->|Route Optimization Request| Opt[Python Optimizer Service]
-    Opt -->|VRP Algorithm| ORTools[Google OR-Tools]
-    Opt -->|Distance Calculation| GMap[Google Maps API]
-    Server -->|Authentication| SupabaseAuth[Supabase Auth]
-    Server -->|Image Storage| SupabaseBucket[Supabase Storage]
-    Server -->|Real-time Updates| Realtime[Supabase Realtime]
-```
+
 
 ### Project Structure
 
@@ -418,6 +409,10 @@ All checkpoint photos are:
 - [ ] **Insurance API:** Automated cargo insurance quotes and claims
 
 ---
+## DEMO VIDEO 
+https://vimeo.com/1152629451?share=copy&fl=sv&fe=ci
+
+---
 
 ## 🤝 Contributing
 
@@ -430,14 +425,6 @@ This is a hackathon project, but we welcome feedback and suggestions! Please ope
 MIT License - See LICENSE file for details
 
 ---
-
-<div align="center">
-
-**Built with ❤️ for Build2Break Hackathon 2026**
-
-[Live Demo](#) • [Video Walkthrough](#) • [Presentation Slides](#)
-
-</div>
 
 ---
 
